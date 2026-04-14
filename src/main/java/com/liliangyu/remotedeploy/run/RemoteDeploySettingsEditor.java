@@ -1,0 +1,206 @@
+package com.liliangyu.remotedeploy.run;
+
+import com.intellij.openapi.fileChooser.FileChooserDescriptor;
+import com.intellij.openapi.options.SettingsEditor;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.ui.TextBrowseFolderListener;
+import com.intellij.openapi.ui.TextFieldWithBrowseButton;
+import com.intellij.ui.components.JBScrollPane;
+import com.intellij.ui.components.JBTextArea;
+import com.intellij.ui.components.JBTextField;
+import com.intellij.util.ui.FormBuilder;
+import com.intellij.util.ui.JBUI;
+import com.liliangyu.remotedeploy.model.AuthType;
+import com.liliangyu.remotedeploy.model.ServerConfig;
+import com.liliangyu.remotedeploy.service.SecretStorage;
+import com.liliangyu.remotedeploy.settings.RemoteDeploySettingsService;
+import com.liliangyu.remotedeploy.ui.ServerConfigDialog;
+import org.jetbrains.annotations.NotNull;
+
+import javax.swing.DefaultComboBoxModel;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JComboBox;
+import javax.swing.JPanel;
+import java.awt.BorderLayout;
+import java.awt.FlowLayout;
+import java.util.List;
+
+/**
+ * Editor UI for configuring stored servers and deploy settings inside Run/Debug Configurations.
+ */
+public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeployRunConfiguration> {
+    private final Project project;
+    private final RemoteDeploySettingsService settingsService = RemoteDeploySettingsService.getInstance();
+
+    private final JComboBox<ServerConfig> serverComboBox = new JComboBox<>();
+    private final TextFieldWithBrowseButton localPathField = new TextFieldWithBrowseButton();
+    private final JBTextField remoteDirectoryField = new JBTextField();
+    private final JBTextArea commandArea = new JBTextArea(6, 60);
+
+    public RemoteDeploySettingsEditor(Project project) {
+        this.project = project;
+    }
+
+    @Override
+    protected void resetEditorFrom(@NotNull RemoteDeployRunConfiguration configuration) {
+        reloadServers(configuration.getServerId());
+        localPathField.setText(configuration.getLocalPath());
+        remoteDirectoryField.setText(configuration.getRemoteDirectory());
+        commandArea.setText(configuration.getCommand());
+    }
+
+    @Override
+    protected void applyEditorTo(@NotNull RemoteDeployRunConfiguration configuration) {
+        ServerConfig selected = getSelectedServer();
+        configuration.setServerId(selected == null ? "" : selected.getId());
+        configuration.setLocalPath(localPathField.getText().trim());
+        configuration.setRemoteDirectory(remoteDirectoryField.getText().trim());
+        configuration.setCommand(commandArea.getText().trim());
+    }
+
+    @Override
+    protected @NotNull JComponent createEditor() {
+        FileChooserDescriptor localPathDescriptor = new FileChooserDescriptor(true, true, false, false, false, false);
+        localPathDescriptor.setTitle("Select Local File or Folder");
+        localPathDescriptor.setDescription("Pick one file or one directory to upload.");
+        localPathField.addBrowseFolderListener(new TextBrowseFolderListener(localPathDescriptor, project));
+
+        commandArea.setLineWrap(true);
+        commandArea.setWrapStyleWord(true);
+        serverComboBox.addActionListener(event -> applyServerDefaultsIfBlank());
+
+        JBScrollPane commandScrollPane = new JBScrollPane(commandArea);
+        commandScrollPane.setPreferredSize(JBUI.size(0, 160));
+
+        return FormBuilder.createFormBuilder()
+            .addLabeledComponent("Server:", createServerRow())
+            .addLabeledComponent("Local path:", localPathField)
+            .addLabeledComponent("Remote directory:", remoteDirectoryField)
+            .addLabeledComponentFillVertically("Remote command:", commandScrollPane)
+            .getPanel();
+    }
+
+    private JPanel createServerRow() {
+        JButton addButton = new JButton("Add");
+        JButton editButton = new JButton("Edit");
+        JButton removeButton = new JButton("Remove");
+
+        addButton.addActionListener(event -> addServer());
+        editButton.addActionListener(event -> editServer());
+        removeButton.addActionListener(event -> removeServer());
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        buttonPanel.add(addButton);
+        buttonPanel.add(editButton);
+        buttonPanel.add(removeButton);
+
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.add(serverComboBox, BorderLayout.CENTER);
+        row.add(buttonPanel, BorderLayout.EAST);
+        return row;
+    }
+
+    private void reloadServers(String preferredServerId) {
+        List<ServerConfig> servers = settingsService.getServers();
+        DefaultComboBoxModel<ServerConfig> model = new DefaultComboBoxModel<>();
+        for (ServerConfig server : servers) {
+            model.addElement(server);
+        }
+        serverComboBox.setModel(model);
+        selectServer(preferredServerId, servers);
+        applyServerDefaultsIfBlank();
+    }
+
+    private void selectServer(String preferredServerId, List<ServerConfig> servers) {
+        if (servers.isEmpty()) {
+            serverComboBox.setSelectedItem(null);
+            return;
+        }
+        if (preferredServerId != null) {
+            for (ServerConfig server : servers) {
+                if (preferredServerId.equals(server.getId())) {
+                    serverComboBox.setSelectedItem(server);
+                    return;
+                }
+            }
+        }
+        serverComboBox.setSelectedItem(servers.getFirst());
+    }
+
+    private void addServer() {
+        ServerConfigDialog dialog = new ServerConfigDialog(project, null);
+        if (!dialog.showAndGet() || dialog.getResult() == null) {
+            return;
+        }
+        persistServer(dialog.getResult());
+        reloadServers(dialog.getResult().server().getId());
+    }
+
+    private void editServer() {
+        ServerConfig selected = getSelectedServer();
+        if (selected == null) {
+            return;
+        }
+
+        ServerConfigDialog dialog = new ServerConfigDialog(project, selected);
+        if (!dialog.showAndGet() || dialog.getResult() == null) {
+            return;
+        }
+        persistServer(dialog.getResult());
+        reloadServers(dialog.getResult().server().getId());
+    }
+
+    private void removeServer() {
+        ServerConfig selected = getSelectedServer();
+        if (selected == null) {
+            return;
+        }
+
+        int answer = Messages.showYesNoDialog(
+            project,
+            "Remove server '" + selected.getName() + "'?",
+            "Remove Server",
+            Messages.getQuestionIcon()
+        );
+        if (answer != Messages.YES) {
+            return;
+        }
+
+        settingsService.removeServer(selected.getId());
+        SecretStorage.deleteServerSecrets(selected.getId());
+        reloadServers(settingsService.getLastServerId());
+    }
+
+    private void applyServerDefaultsIfBlank() {
+        ServerConfig selected = getSelectedServer();
+        if (selected == null) {
+            return;
+        }
+
+        if (remoteDirectoryField.getText().trim().isEmpty()) {
+            remoteDirectoryField.setText(selected.getRemoteDirectory());
+        }
+        if (commandArea.getText().trim().isEmpty()) {
+            commandArea.setText(selected.getDeployCommand());
+        }
+    }
+
+    private void persistServer(ServerConfigDialog.Result result) {
+        ServerConfig server = result.server();
+        settingsService.saveServer(server);
+        if (server.getAuthType() == AuthType.PASSWORD) {
+            SecretStorage.savePassword(server.getId(), result.password());
+            SecretStorage.savePassphrase(server.getId(), null);
+            return;
+        }
+        SecretStorage.savePassword(server.getId(), null);
+        SecretStorage.savePassphrase(server.getId(), result.passphrase());
+    }
+
+    private ServerConfig getSelectedServer() {
+        Object selectedItem = serverComboBox.getSelectedItem();
+        return selectedItem instanceof ServerConfig server ? server : null;
+    }
+}

@@ -1,0 +1,28 @@
+<idea-plugin>
+  <id>com.liliangyu.remotedeploy</id>
+  <name>Remote Deploy</name>
+  <version>0.1.0</version>
+  <vendor>liliangyu</vendor>
+  <description><![CDATA[
+  Upload a local file or directory to a remote server and run a follow-up deployment command.
+  ]]></description>
+  <idea-version since-build="261"/>
+  <depends>com.intellij.modules.platform</depends>
+  <depends>com.intellij.modules.goland</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <applicationService serviceImplementation="com.liliangyu.remotedeploy.settings.RemoteDeploySettingsService"/>
+    <notificationGroup id="Remote Deploy" displayType="BALLOON" isLogByDefault="true"/>
+    <configurationType implementation="com.liliangyu.remotedeploy.run.RemoteDeployConfigurationType"/>
+  </extensions>
+
+  <actions>
+    <action
+        id="com.liliangyu.remotedeploy.action.RemoteDeployAction"
+        class="com.liliangyu.remotedeploy.action.RemoteDeployAction"
+        text="Remote Deploy..."
+        description="Upload files to a remote server and run a deployment command">
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+    </action>
+  </actions>
+</idea-plugin>
