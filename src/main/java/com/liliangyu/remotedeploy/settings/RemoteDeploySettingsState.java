@@ -9,4 +9,6 @@ import java.util.List;
 public class RemoteDeploySettingsState {
     public List<ServerConfig> servers = new ArrayList<>();
     public String lastServerId = "";
+    public List<String> deployCommandHistory = new ArrayList<>();
+    public List<String> afterRemoteCommandHistory = new ArrayList<>();
 }

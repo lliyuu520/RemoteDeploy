@@ -9,6 +9,7 @@
   <idea-version since-build="261"/>
   <depends>com.intellij.modules.platform</depends>
   <depends>com.intellij.modules.goland</depends>
+  <depends>org.jetbrains.plugins.terminal</depends>
 
   <extensions defaultExtensionNs="com.intellij">
     <applicationService serviceImplementation="com.liliangyu.remotedeploy.settings.RemoteDeploySettingsService"/>

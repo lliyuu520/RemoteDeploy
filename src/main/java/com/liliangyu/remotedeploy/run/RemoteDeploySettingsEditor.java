@@ -6,11 +6,8 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextBrowseFolderListener;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
-import com.intellij.ui.components.JBScrollPane;
-import com.intellij.ui.components.JBTextArea;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
-import com.intellij.util.ui.JBUI;
 import com.liliangyu.remotedeploy.model.AuthType;
 import com.liliangyu.remotedeploy.model.ServerConfig;
 import com.liliangyu.remotedeploy.service.SecretStorage;
@@ -37,7 +34,8 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
     private final JComboBox<ServerConfig> serverComboBox = new JComboBox<>();
     private final TextFieldWithBrowseButton localPathField = new TextFieldWithBrowseButton();
     private final JBTextField remoteDirectoryField = new JBTextField();
-    private final JBTextArea commandArea = new JBTextArea(6, 60);
+    private final JComboBox<String> deployCommandComboBox = createEditableCommandComboBox();
+    private final JComboBox<String> afterRemoteCommandComboBox = createEditableCommandComboBox();
 
     public RemoteDeploySettingsEditor(Project project) {
         this.project = project;
@@ -48,7 +46,7 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         reloadServers(configuration.getServerId());
         localPathField.setText(configuration.getLocalPath());
         remoteDirectoryField.setText(configuration.getRemoteDirectory());
-        commandArea.setText(configuration.getCommand());
+        reloadCommandTemplates(configuration.getCommand(), configuration.getAfterTerminalCommand(), true);
     }
 
     @Override
@@ -57,7 +55,12 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         configuration.setServerId(selected == null ? "" : selected.getId());
         configuration.setLocalPath(localPathField.getText().trim());
         configuration.setRemoteDirectory(remoteDirectoryField.getText().trim());
-        configuration.setCommand(commandArea.getText().trim());
+        String deployCommand = getCommandValue(deployCommandComboBox);
+        String afterRemoteCommand = getCommandValue(afterRemoteCommandComboBox);
+        configuration.setCommand(deployCommand);
+        configuration.setAfterTerminalCommand(afterRemoteCommand);
+        settingsService.rememberDeployCommand(deployCommand);
+        settingsService.rememberAfterRemoteCommand(afterRemoteCommand);
     }
 
     @Override
@@ -67,18 +70,17 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         localPathDescriptor.setDescription("Pick one file or one directory to upload.");
         localPathField.addBrowseFolderListener(new TextBrowseFolderListener(localPathDescriptor, project));
 
-        commandArea.setLineWrap(true);
-        commandArea.setWrapStyleWord(true);
-        serverComboBox.addActionListener(event -> applyServerDefaultsIfBlank());
-
-        JBScrollPane commandScrollPane = new JBScrollPane(commandArea);
-        commandScrollPane.setPreferredSize(JBUI.size(0, 160));
+        serverComboBox.addActionListener(event -> {
+            applyServerDefaultsIfBlank();
+            reloadCommandTemplates(getCommandValue(deployCommandComboBox), getCommandValue(afterRemoteCommandComboBox), false);
+        });
 
         return FormBuilder.createFormBuilder()
             .addLabeledComponent("Server:", createServerRow())
             .addLabeledComponent("Local path:", localPathField)
             .addLabeledComponent("Remote directory:", remoteDirectoryField)
-            .addLabeledComponentFillVertically("Remote command:", commandScrollPane)
+            .addLabeledComponent("Deploy command:", deployCommandComboBox)
+            .addLabeledComponent("After remote command (Terminal):", afterRemoteCommandComboBox)
             .getPanel();
     }
 
@@ -113,6 +115,26 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         applyServerDefaultsIfBlank();
     }
 
+    /**
+     * Rebuilds the command dropdown suggestions from lightweight templates without overwriting user-entered values.
+     */
+    private void reloadCommandTemplates(String deployValue, String afterRemoteValue, boolean preferDefaultsWhenBlank) {
+        ServerConfig selected = getSelectedServer();
+        String deployCurrent = normalizeCommandValue(deployValue);
+        if (preferDefaultsWhenBlank && deployCurrent.isEmpty() && selected != null) {
+            deployCurrent = normalizeCommandValue(selected.getDeployCommand());
+        }
+
+        List<String> deployTemplates = settingsService.getDeployCommandTemplates(
+            selected == null ? "" : selected.getDeployCommand(),
+            deployCurrent
+        );
+        List<String> afterRemoteTemplates = settingsService.getAfterRemoteCommandTemplates(afterRemoteValue);
+
+        setCommandTemplates(deployCommandComboBox, deployTemplates, deployCurrent);
+        setCommandTemplates(afterRemoteCommandComboBox, afterRemoteTemplates, afterRemoteValue);
+    }
+
     private void selectServer(String preferredServerId, List<ServerConfig> servers) {
         if (servers.isEmpty()) {
             serverComboBox.setSelectedItem(null);
@@ -134,8 +156,11 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         if (!dialog.showAndGet() || dialog.getResult() == null) {
             return;
         }
+        String deployCommand = getCommandValue(deployCommandComboBox);
+        String afterRemoteCommand = getCommandValue(afterRemoteCommandComboBox);
         persistServer(dialog.getResult());
         reloadServers(dialog.getResult().server().getId());
+        reloadCommandTemplates(deployCommand, afterRemoteCommand, false);
     }
 
     private void editServer() {
@@ -148,8 +173,11 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         if (!dialog.showAndGet() || dialog.getResult() == null) {
             return;
         }
+        String deployCommand = getCommandValue(deployCommandComboBox);
+        String afterRemoteCommand = getCommandValue(afterRemoteCommandComboBox);
         persistServer(dialog.getResult());
         reloadServers(dialog.getResult().server().getId());
+        reloadCommandTemplates(deployCommand, afterRemoteCommand, false);
     }
 
     private void removeServer() {
@@ -170,7 +198,10 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
 
         settingsService.removeServer(selected.getId());
         SecretStorage.deleteServerSecrets(selected.getId());
+        String deployCommand = getCommandValue(deployCommandComboBox);
+        String afterRemoteCommand = getCommandValue(afterRemoteCommandComboBox);
         reloadServers(settingsService.getLastServerId());
+        reloadCommandTemplates(deployCommand, afterRemoteCommand, false);
     }
 
     private void applyServerDefaultsIfBlank() {
@@ -182,8 +213,8 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         if (remoteDirectoryField.getText().trim().isEmpty()) {
             remoteDirectoryField.setText(selected.getRemoteDirectory());
         }
-        if (commandArea.getText().trim().isEmpty()) {
-            commandArea.setText(selected.getDeployCommand());
+        if (getCommandValue(deployCommandComboBox).isEmpty()) {
+            setCommandValue(deployCommandComboBox, selected.getDeployCommand());
         }
     }
 
@@ -202,5 +233,38 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
     private ServerConfig getSelectedServer() {
         Object selectedItem = serverComboBox.getSelectedItem();
         return selectedItem instanceof ServerConfig server ? server : null;
+    }
+
+    private JComboBox<String> createEditableCommandComboBox() {
+        JComboBox<String> comboBox = new JComboBox<>();
+        comboBox.setEditable(true);
+        comboBox.setPrototypeDisplayValue("A very long remote command template");
+        return comboBox;
+    }
+
+    private void setCommandTemplates(JComboBox<String> comboBox, List<String> templates, String currentValue) {
+        DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
+        for (String template : templates) {
+            model.addElement(template);
+        }
+        comboBox.setModel(model);
+        setCommandValue(comboBox, currentValue);
+    }
+
+    private String getCommandValue(JComboBox<String> comboBox) {
+        Object item = comboBox.isEditable() ? comboBox.getEditor().getItem() : comboBox.getSelectedItem();
+        return normalizeCommandValue(item == null ? "" : item.toString());
+    }
+
+    private void setCommandValue(JComboBox<String> comboBox, String value) {
+        String normalized = normalizeCommandValue(value);
+        comboBox.getEditor().setItem(normalized);
+        if (!normalized.isEmpty()) {
+            comboBox.setSelectedItem(normalized);
+        }
+    }
+
+    private String normalizeCommandValue(String value) {
+        return value == null ? "" : value.trim();
     }
 }

@@ -19,6 +19,8 @@ import java.util.Optional;
 @Service(Service.Level.APP)
 @State(name = "RemoteDeploySettings", storages = @Storage("remoteDeploy.xml"))
 public final class RemoteDeploySettingsService implements PersistentStateComponent<RemoteDeploySettingsState> {
+    private static final int MAX_HISTORY_SIZE = 12;
+
     private RemoteDeploySettingsState state = new RemoteDeploySettingsState();
 
     public static RemoteDeploySettingsService getInstance() {
@@ -77,6 +79,34 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
         state.lastServerId = serverId == null ? "" : serverId;
     }
 
+    /**
+     * Returns deploy command suggestions with the server-level default placed ahead of previously used values.
+     */
+    public List<String> getDeployCommandTemplates(String serverDefault, String currentValue) {
+        return mergeCommandTemplates(serverDefault, currentValue, state.deployCommandHistory);
+    }
+
+    /**
+     * Returns post-deploy remote command suggestions from the persisted history plus the current editor value.
+     */
+    public List<String> getAfterRemoteCommandTemplates(String currentValue) {
+        return mergeCommandTemplates(null, currentValue, state.afterRemoteCommandHistory);
+    }
+
+    /**
+     * Stores a deploy command in recency order so the editor can expose lightweight reusable templates.
+     */
+    public void rememberDeployCommand(String command) {
+        rememberCommand(state.deployCommandHistory, command);
+    }
+
+    /**
+     * Stores a post-deploy remote command in recency order for the After remote command dropdown.
+     */
+    public void rememberAfterRemoteCommand(String command) {
+        rememberCommand(state.afterRemoteCommandHistory, command);
+    }
+
     private static RemoteDeploySettingsState copyState(RemoteDeploySettingsState source) {
         RemoteDeploySettingsState copy = new RemoteDeploySettingsState();
         if (source != null) {
@@ -84,7 +114,38 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
             for (ServerConfig server : source.servers) {
                 copy.servers.add(new ServerConfig(server));
             }
+            copy.deployCommandHistory.addAll(source.deployCommandHistory);
+            copy.afterRemoteCommandHistory.addAll(source.afterRemoteCommandHistory);
         }
         return copy;
+    }
+
+    private static List<String> mergeCommandTemplates(String primaryValue, String currentValue, List<String> history) {
+        List<String> result = new ArrayList<>();
+        addIfAbsent(result, primaryValue);
+        addIfAbsent(result, currentValue);
+        for (String command : history) {
+            addIfAbsent(result, command);
+        }
+        return result;
+    }
+
+    private static void rememberCommand(List<String> history, String command) {
+        String normalized = command == null ? "" : command.trim();
+        if (normalized.isEmpty()) {
+            return;
+        }
+        history.removeIf(item -> normalized.equals(item));
+        history.add(0, normalized);
+        while (history.size() > MAX_HISTORY_SIZE) {
+            history.remove(history.size() - 1);
+        }
+    }
+
+    private static void addIfAbsent(List<String> values, String command) {
+        String normalized = command == null ? "" : command.trim();
+        if (!normalized.isEmpty() && !values.contains(normalized)) {
+            values.add(normalized);
+        }
     }
 }
