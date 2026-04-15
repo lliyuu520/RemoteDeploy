@@ -62,7 +62,6 @@ public final class RemoteDeployRunProfileState implements RunProfileState {
 
     private void runDeploy(RemoteDeployProcessHandler handler) {
         ProgressIndicator indicator = handler.getIndicator();
-        Project project = environment.getProject();
         try {
             RemoteDeploySettingsService settingsService = RemoteDeploySettingsService.getInstance();
             Optional<ServerConfig> serverConfig = settingsService.findServer(configuration.getServerId());
@@ -74,9 +73,8 @@ public final class RemoteDeployRunProfileState implements RunProfileState {
 
             ServerConfig server = serverConfig.get();
             String localPath = expandMacros(configuration.getLocalPath());
-            String remoteDirectory = pickValue(configuration.getRemoteDirectory(), server.getRemoteDirectory());
-            String command = pickValue(configuration.getCommand(), server.getDeployCommand());
-            String afterRemoteCommand = expandMacros(configuration.getAfterTerminalCommand());
+            String remoteDirectory = normalizeValue(configuration.getRemoteDirectory());
+            String command = normalizeValue(configuration.getCommand());
 
             printSystem(handler, "Connecting to " + server.getName() + " (" + server.getHost() + ")");
 
@@ -85,16 +83,6 @@ public final class RemoteDeployRunProfileState implements RunProfileState {
 
             printSystem(handler, "Upload finished. Uploaded " + result.uploadedPaths().size() + " item(s).");
             printCommandOutput(handler, result);
-
-            if (!afterRemoteCommand.isBlank()) {
-                printSystem(handler, "Opening IDEA Terminal for post-deploy remote command.");
-                new IdeaTerminalCommandExecutor(project).openAndExecute(
-                    buildAfterTerminalTabTitle(server),
-                    localPath,
-                    server,
-                    afterRemoteCommand
-                );
-            }
             handler.terminate(result.commandSucceeded() ? 0 : exitCodeOrDefault(result, 1));
         } catch (ProcessCanceledException canceled) {
             printSystem(handler, "Deployment canceled.");
@@ -113,25 +101,14 @@ public final class RemoteDeployRunProfileState implements RunProfileState {
         }
     }
 
-    /**
-     * Gives the follow-up terminal tab a predictable title so multiple deploy sessions stay recognizable.
-     */
-    private String buildAfterTerminalTabTitle(ServerConfig server) {
-        String serverName = server.getName() == null || server.getName().isBlank() ? server.getHost() : server.getName().trim();
-        return "Remote Deploy - " + serverName;
-    }
-
     private String expandMacros(String value) throws Macro.ExecutionCancelledException {
         String raw = value == null ? "" : value;
         DataContext context = environment.getDataContext();
         return MacroManager.getInstance().expandMacrosInString(raw, true, context == null ? DataContext.EMPTY_CONTEXT : context);
     }
 
-    private static String pickValue(String primary, String fallback) {
-        if (primary != null && !primary.isBlank()) {
-            return primary.trim();
-        }
-        return fallback == null ? "" : fallback.trim();
+    private static String normalizeValue(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private void printCommandOutput(RemoteDeployProcessHandler handler, DeploymentResult result) {

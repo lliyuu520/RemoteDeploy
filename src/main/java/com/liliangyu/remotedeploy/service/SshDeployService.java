@@ -40,14 +40,7 @@ public final class SshDeployService {
         String remoteDirectory = normalizeRemoteDirectory(request.remoteDirectory());
         List<String> uploadedPaths = new ArrayList<>();
 
-        try (SSHClient client = new SSHClient()) {
-            indicator.setText("Connecting to " + server.getHost());
-
-            // Personal-use MVP: trust-on-first-use is postponed so the first version stays frictionless.
-            client.addHostKeyVerifier(new PromiscuousVerifier());
-            client.connect(server.getHost(), server.getPort());
-            authenticate(client, server);
-
+        try (SSHClient client = openClient(server, indicator, null, null)) {
             try (SFTPClient sftpClient = client.newSFTPClient()) {
                 uploadLocalPath(localPath, remoteDirectory, sftpClient, indicator, uploadedPaths);
             }
@@ -57,7 +50,10 @@ public final class SshDeployService {
             }
 
             indicator.setText("Running remote command");
-            CommandResult commandResult = executeCommand(client, request.command());
+            CommandResult commandResult = executeCommand(
+                client,
+                RemoteCommandSupport.buildExecCommand(remoteDirectory, request.command())
+            );
             DeploymentResult result = new DeploymentResult(uploadedPaths, commandResult.stdout(), commandResult.stderr(), commandResult.exitCode());
             if (!result.commandSucceeded()) {
                 throw new DeploymentException("Remote command exited with status " + result.exitCode() + ".", result);
@@ -67,11 +63,46 @@ public final class SshDeployService {
     }
 
     /**
+     * Verifies the current server form values can open and authenticate an SSH session before the dialog is saved.
+     */
+    public void testConnection(ServerConfig server, String password, String passphrase, ProgressIndicator indicator) throws IOException {
+        try (SSHClient client = openClient(server, indicator, password, passphrase)) {
+            indicator.setText("Connection successful");
+        }
+    }
+
+    /**
+     * Opens an SSH transport and authenticates it once so deploy and connection-test flows stay aligned.
+     */
+    private SSHClient openClient(ServerConfig server, ProgressIndicator indicator, String passwordOverride, String passphraseOverride)
+        throws IOException {
+        indicator.checkCanceled();
+        indicator.setText("Connecting to " + server.getHost());
+
+        SSHClient client = new SSHClient();
+        try {
+            // Personal-use MVP: trust-on-first-use is postponed so the first version stays frictionless.
+            client.addHostKeyVerifier(new PromiscuousVerifier());
+            client.connect(server.getHost(), server.getPort());
+            indicator.checkCanceled();
+            authenticate(client, server, passwordOverride, passphraseOverride);
+            return client;
+        } catch (IOException exception) {
+            try {
+                client.close();
+            } catch (IOException closeException) {
+                exception.addSuppressed(closeException);
+            }
+            throw exception;
+        }
+    }
+
+    /**
      * Resolves the configured auth mode and the corresponding secret before opening SFTP or shell sessions.
      */
-    private void authenticate(SSHClient client, ServerConfig server) throws IOException {
+    private void authenticate(SSHClient client, ServerConfig server, String passwordOverride, String passphraseOverride) throws IOException {
         if (server.getAuthType() == AuthType.PASSWORD) {
-            String password = SecretStorage.loadPassword(server.getId());
+            String password = passwordOverride != null ? passwordOverride.trim() : SecretStorage.loadPassword(server.getId());
             if (password.isBlank()) {
                 throw new IOException("No password stored for server: " + server.getName());
             }
@@ -87,7 +118,7 @@ public final class SshDeployService {
             throw new IOException("Private key file does not exist: " + keyPath);
         }
 
-        String passphrase = SecretStorage.loadPassphrase(server.getId());
+        String passphrase = passphraseOverride != null ? passphraseOverride.trim() : SecretStorage.loadPassphrase(server.getId());
         char[] passphraseChars = passphrase.isBlank() ? null : passphrase.toCharArray();
         client.authPublickey(server.getUsername(), client.loadKeys(keyPath, passphraseChars));
     }
@@ -169,7 +200,7 @@ public final class SshDeployService {
     }
 
     private String normalizeRemoteDirectory(String remoteDirectory) throws IOException {
-                String normalized = remoteDirectory == null ? "" : remoteDirectory.trim().replace('\\', '/');
+        String normalized = remoteDirectory == null ? "" : remoteDirectory.trim().replace('\\', '/');
         if (normalized.isBlank()) {
             throw new IOException("Remote directory is required.");
         }

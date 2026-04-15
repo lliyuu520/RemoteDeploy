@@ -1,5 +1,6 @@
 package com.liliangyu.remotedeploy.run;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
@@ -8,6 +9,7 @@ import com.intellij.openapi.ui.TextBrowseFolderListener;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
+import com.intellij.util.ui.JBUI;
 import com.liliangyu.remotedeploy.model.AuthType;
 import com.liliangyu.remotedeploy.model.ServerConfig;
 import com.liliangyu.remotedeploy.service.SecretStorage;
@@ -19,9 +21,12 @@ import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JComboBox;
+import javax.swing.Icon;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.event.ActionListener;
 import java.util.List;
 
 /**
@@ -35,7 +40,6 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
     private final TextFieldWithBrowseButton localPathField = new TextFieldWithBrowseButton();
     private final JBTextField remoteDirectoryField = new JBTextField();
     private final JComboBox<String> deployCommandComboBox = createEditableCommandComboBox();
-    private final JComboBox<String> afterRemoteCommandComboBox = createEditableCommandComboBox();
 
     public RemoteDeploySettingsEditor(Project project) {
         this.project = project;
@@ -46,7 +50,7 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         reloadServers(configuration.getServerId());
         localPathField.setText(configuration.getLocalPath());
         remoteDirectoryField.setText(configuration.getRemoteDirectory());
-        reloadCommandTemplates(configuration.getCommand(), configuration.getAfterTerminalCommand(), true);
+        reloadCommandTemplates(configuration.getCommand());
     }
 
     @Override
@@ -56,11 +60,8 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         configuration.setLocalPath(localPathField.getText().trim());
         configuration.setRemoteDirectory(remoteDirectoryField.getText().trim());
         String deployCommand = getCommandValue(deployCommandComboBox);
-        String afterRemoteCommand = getCommandValue(afterRemoteCommandComboBox);
         configuration.setCommand(deployCommand);
-        configuration.setAfterTerminalCommand(afterRemoteCommand);
         settingsService.rememberDeployCommand(deployCommand);
-        settingsService.rememberAfterRemoteCommand(afterRemoteCommand);
     }
 
     @Override
@@ -70,30 +71,23 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         localPathDescriptor.setDescription("Pick one file or one directory to upload.");
         localPathField.addBrowseFolderListener(new TextBrowseFolderListener(localPathDescriptor, project));
 
-        serverComboBox.addActionListener(event -> {
-            applyServerDefaultsIfBlank();
-            reloadCommandTemplates(getCommandValue(deployCommandComboBox), getCommandValue(afterRemoteCommandComboBox), false);
-        });
+        serverComboBox.setPrototypeDisplayValue(createServerPrototype());
+        serverComboBox.addActionListener(event -> reloadCommandTemplates(getCommandValue(deployCommandComboBox)));
 
         return FormBuilder.createFormBuilder()
             .addLabeledComponent("Server:", createServerRow())
             .addLabeledComponent("Local path:", localPathField)
             .addLabeledComponent("Remote directory:", remoteDirectoryField)
-            .addLabeledComponent("Deploy command:", deployCommandComboBox)
-            .addLabeledComponent("After remote command (Terminal):", afterRemoteCommandComboBox)
+            .addLabeledComponent("Deploy command:", createStretchRow(deployCommandComboBox))
             .getPanel();
     }
 
     private JPanel createServerRow() {
-        JButton addButton = new JButton("Add");
-        JButton editButton = new JButton("Edit");
-        JButton removeButton = new JButton("Remove");
+        JButton addButton = createIconButton(AllIcons.General.Add, "Add server", event -> addServer());
+        JButton editButton = createIconButton(AllIcons.Actions.Edit, "Edit server", event -> editServer());
+        JButton removeButton = createIconButton(AllIcons.General.Remove, "Remove server", event -> removeServer());
 
-        addButton.addActionListener(event -> addServer());
-        editButton.addActionListener(event -> editServer());
-        removeButton.addActionListener(event -> removeServer());
-
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         buttonPanel.add(addButton);
         buttonPanel.add(editButton);
         buttonPanel.add(removeButton);
@@ -101,6 +95,28 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         JPanel row = new JPanel(new BorderLayout(8, 0));
         row.add(serverComboBox, BorderLayout.CENTER);
         row.add(buttonPanel, BorderLayout.EAST);
+        return row;
+    }
+
+    /**
+     * Keeps server actions lightweight so the selected host can use most of the row width.
+     */
+    private JButton createIconButton(Icon icon, String tooltip, ActionListener actionListener) {
+        JButton button = new JButton(icon);
+        button.setToolTipText(tooltip);
+        button.addActionListener(actionListener);
+        button.setPreferredSize(JBUI.size(32, 32));
+        button.setMinimumSize(new Dimension(32, 32));
+        button.setFocusable(false);
+        return button;
+    }
+
+    /**
+     * FormBuilder does not horizontally stretch JComboBox by default, so wrap it in a row panel that can fill the column.
+     */
+    private JPanel createStretchRow(JComponent component) {
+        JPanel row = new JPanel(new BorderLayout());
+        row.add(component, BorderLayout.CENTER);
         return row;
     }
 
@@ -112,27 +128,15 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         }
         serverComboBox.setModel(model);
         selectServer(preferredServerId, servers);
-        applyServerDefaultsIfBlank();
     }
 
     /**
-     * Rebuilds the command dropdown suggestions from lightweight templates without overwriting user-entered values.
+     * Rebuilds the command dropdown suggestions from lightweight history without overwriting user-entered values.
      */
-    private void reloadCommandTemplates(String deployValue, String afterRemoteValue, boolean preferDefaultsWhenBlank) {
-        ServerConfig selected = getSelectedServer();
+    private void reloadCommandTemplates(String deployValue) {
         String deployCurrent = normalizeCommandValue(deployValue);
-        if (preferDefaultsWhenBlank && deployCurrent.isEmpty() && selected != null) {
-            deployCurrent = normalizeCommandValue(selected.getDeployCommand());
-        }
-
-        List<String> deployTemplates = settingsService.getDeployCommandTemplates(
-            selected == null ? "" : selected.getDeployCommand(),
-            deployCurrent
-        );
-        List<String> afterRemoteTemplates = settingsService.getAfterRemoteCommandTemplates(afterRemoteValue);
-
+        List<String> deployTemplates = settingsService.getDeployCommandTemplates(deployCurrent);
         setCommandTemplates(deployCommandComboBox, deployTemplates, deployCurrent);
-        setCommandTemplates(afterRemoteCommandComboBox, afterRemoteTemplates, afterRemoteValue);
     }
 
     private void selectServer(String preferredServerId, List<ServerConfig> servers) {
@@ -157,10 +161,9 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
             return;
         }
         String deployCommand = getCommandValue(deployCommandComboBox);
-        String afterRemoteCommand = getCommandValue(afterRemoteCommandComboBox);
         persistServer(dialog.getResult());
         reloadServers(dialog.getResult().server().getId());
-        reloadCommandTemplates(deployCommand, afterRemoteCommand, false);
+        reloadCommandTemplates(deployCommand);
     }
 
     private void editServer() {
@@ -174,10 +177,9 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
             return;
         }
         String deployCommand = getCommandValue(deployCommandComboBox);
-        String afterRemoteCommand = getCommandValue(afterRemoteCommandComboBox);
         persistServer(dialog.getResult());
         reloadServers(dialog.getResult().server().getId());
-        reloadCommandTemplates(deployCommand, afterRemoteCommand, false);
+        reloadCommandTemplates(deployCommand);
     }
 
     private void removeServer() {
@@ -199,23 +201,8 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         settingsService.removeServer(selected.getId());
         SecretStorage.deleteServerSecrets(selected.getId());
         String deployCommand = getCommandValue(deployCommandComboBox);
-        String afterRemoteCommand = getCommandValue(afterRemoteCommandComboBox);
         reloadServers(settingsService.getLastServerId());
-        reloadCommandTemplates(deployCommand, afterRemoteCommand, false);
-    }
-
-    private void applyServerDefaultsIfBlank() {
-        ServerConfig selected = getSelectedServer();
-        if (selected == null) {
-            return;
-        }
-
-        if (remoteDirectoryField.getText().trim().isEmpty()) {
-            remoteDirectoryField.setText(selected.getRemoteDirectory());
-        }
-        if (getCommandValue(deployCommandComboBox).isEmpty()) {
-            setCommandValue(deployCommandComboBox, selected.getDeployCommand());
-        }
+        reloadCommandTemplates(deployCommand);
     }
 
     private void persistServer(ServerConfigDialog.Result result) {
@@ -266,5 +253,11 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
 
     private String normalizeCommandValue(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private ServerConfig createServerPrototype() {
+        ServerConfig prototype = new ServerConfig();
+        prototype.setName("deploy-prod-long.example.com");
+        return prototype;
     }
 }

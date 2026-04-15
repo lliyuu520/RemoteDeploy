@@ -80,17 +80,10 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
     }
 
     /**
-     * Returns deploy command suggestions with the server-level default placed ahead of previously used values.
+     * Returns deploy command suggestions from recent history plus the current editor value.
      */
-    public List<String> getDeployCommandTemplates(String serverDefault, String currentValue) {
-        return mergeCommandTemplates(serverDefault, currentValue, state.deployCommandHistory);
-    }
-
-    /**
-     * Returns post-deploy remote command suggestions from the persisted history plus the current editor value.
-     */
-    public List<String> getAfterRemoteCommandTemplates(String currentValue) {
-        return mergeCommandTemplates(null, currentValue, state.afterRemoteCommandHistory);
+    public List<String> getDeployCommandTemplates(String currentValue) {
+        return mergeCommandTemplates(null, currentValue, state.deployCommandHistory);
     }
 
     /**
@@ -98,13 +91,6 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
      */
     public void rememberDeployCommand(String command) {
         rememberCommand(state.deployCommandHistory, command);
-    }
-
-    /**
-     * Stores a post-deploy remote command in recency order for the After remote command dropdown.
-     */
-    public void rememberAfterRemoteCommand(String command) {
-        rememberCommand(state.afterRemoteCommandHistory, command);
     }
 
     private static RemoteDeploySettingsState copyState(RemoteDeploySettingsState source) {
@@ -115,7 +101,6 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
                 copy.servers.add(new ServerConfig(server));
             }
             copy.deployCommandHistory.addAll(source.deployCommandHistory);
-            copy.afterRemoteCommandHistory.addAll(source.afterRemoteCommandHistory);
         }
         return copy;
     }

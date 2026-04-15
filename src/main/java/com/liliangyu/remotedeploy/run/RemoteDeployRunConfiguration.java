@@ -26,13 +26,11 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
     private static final String FIELD_LOCAL_PATH = "localPath";
     private static final String FIELD_REMOTE_DIRECTORY = "remoteDirectory";
     private static final String FIELD_COMMAND = "command";
-    private static final String FIELD_AFTER_TERMINAL_COMMAND = "afterTerminalCommand";
 
     private String serverId = "";
     private String localPath = "";
     private String remoteDirectory = "";
     private String command = "";
-    private String afterTerminalCommand = "";
 
     public RemoteDeployRunConfiguration(Project project, ConfigurationFactory factory, String name) {
         super(project, factory, name);
@@ -69,7 +67,7 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
         }
 
         String remoteValue = remoteDirectory == null ? "" : remoteDirectory.trim();
-        if (remoteValue.isEmpty() && (server.getRemoteDirectory() == null || server.getRemoteDirectory().isBlank())) {
+        if (remoteValue.isEmpty()) {
             throw new RuntimeConfigurationError("Remote directory is required.");
         }
     }
@@ -81,7 +79,6 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
         localPath = JDOMExternalizerUtil.readField(element, FIELD_LOCAL_PATH, "");
         remoteDirectory = JDOMExternalizerUtil.readField(element, FIELD_REMOTE_DIRECTORY, "");
         command = JDOMExternalizerUtil.readField(element, FIELD_COMMAND, "");
-        afterTerminalCommand = JDOMExternalizerUtil.readField(element, FIELD_AFTER_TERMINAL_COMMAND, "");
     }
 
     @Override
@@ -91,11 +88,6 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
         JDOMExternalizerUtil.writeField(element, FIELD_LOCAL_PATH, localPath == null ? "" : localPath);
         JDOMExternalizerUtil.writeField(element, FIELD_REMOTE_DIRECTORY, remoteDirectory == null ? "" : remoteDirectory);
         JDOMExternalizerUtil.writeField(element, FIELD_COMMAND, command == null ? "" : command);
-        JDOMExternalizerUtil.writeField(
-            element,
-            FIELD_AFTER_TERMINAL_COMMAND,
-            afterTerminalCommand == null ? "" : afterTerminalCommand
-        );
     }
 
     public String getServerId() {
@@ -128,13 +120,5 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
 
     public void setCommand(String command) {
         this.command = command == null ? "" : command;
-    }
-
-    public String getAfterTerminalCommand() {
-        return afterTerminalCommand;
-    }
-
-    public void setAfterTerminalCommand(String afterTerminalCommand) {
-        this.afterTerminalCommand = afterTerminalCommand == null ? "" : afterTerminalCommand;
     }
 }

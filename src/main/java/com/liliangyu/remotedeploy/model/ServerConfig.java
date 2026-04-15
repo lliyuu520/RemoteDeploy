@@ -1,7 +1,7 @@
 package com.liliangyu.remotedeploy.model;
 
 /**
- * Stores a reusable deployment target without embedding its secret values in the XML state file.
+ * Stores reusable SSH connection settings without embedding secret values in the XML state file.
  */
 public class ServerConfig {
     private String id = "";
@@ -11,8 +11,6 @@ public class ServerConfig {
     private String username = "";
     private AuthType authType = AuthType.PASSWORD;
     private String privateKeyPath = "";
-    private String remoteDirectory = "";
-    private String deployCommand = "";
 
     public ServerConfig() {
     }
@@ -25,8 +23,6 @@ public class ServerConfig {
         this.username = other.username;
         this.authType = other.authType;
         this.privateKeyPath = other.privateKeyPath;
-        this.remoteDirectory = other.remoteDirectory;
-        this.deployCommand = other.deployCommand;
     }
 
     public String getId() {
@@ -83,22 +79,6 @@ public class ServerConfig {
 
     public void setPrivateKeyPath(String privateKeyPath) {
         this.privateKeyPath = privateKeyPath;
-    }
-
-    public String getRemoteDirectory() {
-        return remoteDirectory;
-    }
-
-    public void setRemoteDirectory(String remoteDirectory) {
-        this.remoteDirectory = remoteDirectory;
-    }
-
-    public String getDeployCommand() {
-        return deployCommand;
-    }
-
-    public void setDeployCommand(String deployCommand) {
-        this.deployCommand = deployCommand;
     }
 
     @Override

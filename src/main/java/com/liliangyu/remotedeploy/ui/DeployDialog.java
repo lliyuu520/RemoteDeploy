@@ -56,7 +56,7 @@ public final class DeployDialog extends DialogWrapper {
                 localPathField.addBrowseFolderListener(new TextBrowseFolderListener(localPathDescriptor, project));
         commandArea.setLineWrap(true);
         commandArea.setWrapStyleWord(true);
-        serverComboBox.addActionListener(event -> applySelectedServerDefaults());
+        serverComboBox.addActionListener(event -> updateServerSelectionState());
 
         if (initialLocalPath != null && !initialLocalPath.isBlank()) {
             localPathField.setText(initialLocalPath);
@@ -192,9 +192,9 @@ public final class DeployDialog extends DialogWrapper {
     }
 
     /**
-     * Applies server defaults after every selection change so deploy runs stay explicit and predictable.
+     * Keeps the dialog actionable only when a server exists, without silently injecting hidden server-level defaults.
      */
-    private void applySelectedServerDefaults() {
+    private void updateServerSelectionState() {
         ServerConfig selectedServer = getSelectedServer();
         if (selectedServer == null) {
             remoteDirectoryField.setText("");
@@ -202,9 +202,6 @@ public final class DeployDialog extends DialogWrapper {
             setOKActionEnabled(false);
             return;
         }
-
-        remoteDirectoryField.setText(selectedServer.getRemoteDirectory());
-        commandArea.setText(selectedServer.getDeployCommand());
         setOKActionEnabled(true);
     }
 
@@ -228,7 +225,7 @@ public final class DeployDialog extends DialogWrapper {
         }
         serverComboBox.setModel(model);
         selectServer(preferredServerId, servers);
-        applySelectedServerDefaults();
+        updateServerSelectionState();
     }
 
     private void selectServer(@Nullable String preferredServerId, List<ServerConfig> servers) {
