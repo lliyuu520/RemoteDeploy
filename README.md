@@ -141,8 +141,18 @@ Before opening a pull request:
 Please read the community files before contributing:
 
 - [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Contributing Guide](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
 - [Bug Report Template](.github/ISSUE_TEMPLATE/bug_report.md)
 - [Feature Request Template](.github/ISSUE_TEMPLATE/feature_request.md)
+
+## Open Source Safety
+
+If you are publishing, forking, or contributing to this project, review these first:
+
+- [Contributing Guide](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+- [Open Source Release Checklist](docs/open-source-release-checklist.md)
 
 ## Development Notes
 
