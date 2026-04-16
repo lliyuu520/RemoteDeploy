@@ -21,6 +21,8 @@ It is designed for the common "edit locally, upload quickly, run one deploy comm
 
 Remote Deploy is currently an early-stage open source project and should be treated as an MVP.
 
+It is an independently developed personal project and is not officially affiliated with, endorsed by, or backed by JetBrains or any previous plugin author, company, or organization.
+
 That means:
 
 - the core deploy flow is working
