@@ -2,10 +2,25 @@
   <id>com.liliangyu.remotedeploy</id>
   <name>Remote Deploy</name>
   <version>0.1.0</version>
-  <vendor>liliangyu</vendor>
+  <vendor url="https://github.com/lliyuu520">liliangyu</vendor>
   <description><![CDATA[
-  Upload a local file or directory to a remote server and run a follow-up deployment command.
+  <p>Upload a local file or directory to a remote server over SSH and optionally run a follow-up deploy command without leaving your IDE.</p>
+  <ul>
+    <li>Upload files or folders with SFTP</li>
+    <li>Run an optional remote command after upload</li>
+    <li>Reuse saved SSH targets and deploy run configurations</li>
+    <li>Store passwords and passphrases in IntelliJ Password Safe</li>
+  </ul>
+  <p>Best suited for fast server-side iteration, internal tools, and lightweight deploy workflows where a full CI/CD pipeline would be overkill.</p>
   ]]></description>
+  <change-notes><![CDATA[
+  <ul>
+    <li>Initial open source release</li>
+    <li>Deploy from the Tools menu or reusable Run Configurations</li>
+    <li>Support password and private-key SSH authentication</li>
+    <li>Include one-click plugin and source packaging scripts</li>
+  </ul>
+  ]]></change-notes>
   <idea-version since-build="261"/>
   <depends>com.intellij.modules.platform</depends>
 
