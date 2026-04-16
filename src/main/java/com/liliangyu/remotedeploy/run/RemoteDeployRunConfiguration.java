@@ -10,6 +10,7 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.JDOMExternalizerUtil;
+import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
 import com.liliangyu.remotedeploy.model.ServerConfig;
 import com.liliangyu.remotedeploy.settings.RemoteDeploySettingsService;
 import org.jdom.Element;
@@ -49,26 +50,26 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
     @Override
     public void checkConfiguration() throws RuntimeConfigurationError {
         if (serverId == null || serverId.isBlank()) {
-            throw new RuntimeConfigurationError("Server is required.");
+            throw new RuntimeConfigurationError(RemoteDeployBundle.message("run.configuration.validation.serverRequired"));
         }
 
         RemoteDeploySettingsService settingsService = RemoteDeploySettingsService.getInstance();
         ServerConfig server = settingsService.findServer(serverId).orElse(null);
         if (server == null) {
-            throw new RuntimeConfigurationError("Selected server no longer exists.");
+            throw new RuntimeConfigurationError(RemoteDeployBundle.message("run.configuration.validation.serverMissing"));
         }
 
         String localPathValue = localPath == null ? "" : localPath.trim();
         if (localPathValue.isEmpty()) {
-            throw new RuntimeConfigurationError("Local path is required.");
+            throw new RuntimeConfigurationError(RemoteDeployBundle.message("run.configuration.validation.localPathRequired"));
         }
         if (!Files.exists(Path.of(localPathValue))) {
-            throw new RuntimeConfigurationError("Local path does not exist: " + localPathValue);
+            throw new RuntimeConfigurationError(RemoteDeployBundle.message("run.configuration.validation.localPathMissing", localPathValue));
         }
 
         String remoteValue = remoteDirectory == null ? "" : remoteDirectory.trim();
         if (remoteValue.isEmpty()) {
-            throw new RuntimeConfigurationError("Remote directory is required.");
+            throw new RuntimeConfigurationError(RemoteDeployBundle.message("run.configuration.validation.remoteDirectoryRequired"));
         }
     }
 

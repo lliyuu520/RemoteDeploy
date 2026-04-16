@@ -12,6 +12,8 @@ import com.intellij.ui.components.JBTextArea;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
 import com.intellij.util.ui.JBUI;
+import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
+import com.liliangyu.remotedeploy.i18n.UiLanguage;
 import com.liliangyu.remotedeploy.model.DeploymentRequest;
 import com.liliangyu.remotedeploy.model.ServerConfig;
 import com.liliangyu.remotedeploy.service.SecretStorage;
@@ -35,10 +37,18 @@ import java.util.List;
 public final class DeployDialog extends DialogWrapper {
     private final @Nullable Project project;
     private final RemoteDeploySettingsService settingsService = RemoteDeploySettingsService.getInstance();
+    private final JComboBox<UiLanguage> languageComboBox = new JComboBox<>(UiLanguage.values());
     private final JComboBox<ServerConfig> serverComboBox = new JComboBox<>();
     private final TextFieldWithBrowseButton localPathField = new TextFieldWithBrowseButton();
     private final JBTextField remoteDirectoryField = new JBTextField();
     private final JBTextArea commandArea = new JBTextArea(6, 60);
+    private final JButton addButton = new JButton();
+    private final JButton editButton = new JButton();
+    private final JButton removeButton = new JButton();
+    private final FileChooserDescriptor localPathDescriptor = new FileChooserDescriptor(true, true, false, false, false, false);
+    private final JBScrollPane commandScrollPane = new JBScrollPane(commandArea);
+    private final JPanel centerPanel = new JPanel(new BorderLayout());
+    private final JPanel serverRow = createServerRow();
 
     private DeploymentRequest request;
 
@@ -46,16 +56,16 @@ public final class DeployDialog extends DialogWrapper {
         super(project);
         this.project = project;
 
-        setTitle("Remote Deploy");
-        setOKButtonText("Deploy");
+        setTitle(RemoteDeployBundle.message("deploy.dialog.title"));
+        setOKButtonText(RemoteDeployBundle.message("deploy.dialog.ok"));
         setResizable(true);
 
-                FileChooserDescriptor localPathDescriptor = new FileChooserDescriptor(true, true, false, false, false, false);
-                localPathDescriptor.setTitle("Select Local File or Folder");
-                localPathDescriptor.setDescription("Pick one file or one directory to upload.");
-                localPathField.addBrowseFolderListener(new TextBrowseFolderListener(localPathDescriptor, project));
+        localPathField.addBrowseFolderListener(new TextBrowseFolderListener(localPathDescriptor, project));
         commandArea.setLineWrap(true);
         commandArea.setWrapStyleWord(true);
+        commandScrollPane.setPreferredSize(JBUI.size(0, 160));
+        languageComboBox.setSelectedItem(settingsService.getUiLanguage());
+        languageComboBox.addActionListener(event -> applySelectedLanguage());
         serverComboBox.addActionListener(event -> updateServerSelectionState());
 
         if (initialLocalPath != null && !initialLocalPath.isBlank()) {
@@ -67,6 +77,7 @@ public final class DeployDialog extends DialogWrapper {
         reloadServers(settingsService.getLastServerId());
         init();
         initValidation();
+        refreshTexts();
     }
 
     public @Nullable DeploymentRequest getRequest() {
@@ -75,15 +86,8 @@ public final class DeployDialog extends DialogWrapper {
 
     @Override
     protected @Nullable JComponent createCenterPanel() {
-        JBScrollPane commandScrollPane = new JBScrollPane(commandArea);
-        commandScrollPane.setPreferredSize(JBUI.size(0, 160));
-
-        return FormBuilder.createFormBuilder()
-            .addLabeledComponent("Server:", createServerRow())
-            .addLabeledComponent("Local path:", localPathField)
-            .addLabeledComponent("Remote directory:", remoteDirectoryField)
-                    .addLabeledComponentFillVertically("Remote command:", commandScrollPane)
-            .getPanel();
+        rebuildCenterPanel();
+        return centerPanel;
     }
 
     @Override
@@ -111,27 +115,23 @@ public final class DeployDialog extends DialogWrapper {
     @Override
     protected @Nullable ValidationInfo doValidate() {
         if (getSelectedServer() == null) {
-            return new ValidationInfo("Add at least one server before deploying.", serverComboBox);
+            return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.serverRequired"), serverComboBox);
         }
 
         String localPath = localPathField.getText().trim();
         if (localPath.isEmpty()) {
-            return new ValidationInfo("Local path is required.", localPathField);
+            return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.localPathRequired"), localPathField);
         }
         if (!Files.exists(Path.of(localPath))) {
-            return new ValidationInfo("Local path does not exist.", localPathField);
+            return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.localPathMissing"), localPathField);
         }
         if (remoteDirectoryField.getText().trim().isEmpty()) {
-            return new ValidationInfo("Remote directory is required.", remoteDirectoryField);
+            return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.remoteDirectoryRequired"), remoteDirectoryField);
         }
         return null;
     }
 
     private JPanel createServerRow() {
-        JButton addButton = new JButton("Add");
-        JButton editButton = new JButton("Edit");
-        JButton removeButton = new JButton("Remove");
-
         addButton.addActionListener(event -> addServer());
         editButton.addActionListener(event -> editSelectedServer());
         removeButton.addActionListener(event -> removeSelectedServer());
@@ -178,8 +178,8 @@ public final class DeployDialog extends DialogWrapper {
 
         int answer = Messages.showYesNoDialog(
             project,
-            "Remove server '" + selectedServer.getName() + "'?",
-            "Remove Server",
+            RemoteDeployBundle.message("deploy.dialog.removeServer.message", selectedServer.getName()),
+            RemoteDeployBundle.message("deploy.dialog.removeServer.title"),
             Messages.getQuestionIcon()
         );
         if (answer != Messages.YES) {
@@ -247,5 +247,41 @@ public final class DeployDialog extends DialogWrapper {
     private @Nullable ServerConfig getSelectedServer() {
         Object selectedItem = serverComboBox.getSelectedItem();
         return selectedItem instanceof ServerConfig server ? server : null;
+    }
+
+    private void applySelectedLanguage() {
+        UiLanguage selected = (UiLanguage) languageComboBox.getSelectedItem();
+        settingsService.setUiLanguage(selected);
+        refreshTexts();
+    }
+
+    /**
+     * Rebuilds the form labels from the current language while keeping existing field values and selections intact.
+     */
+    private void refreshTexts() {
+        setTitle(RemoteDeployBundle.message("deploy.dialog.title"));
+        setOKButtonText(RemoteDeployBundle.message("deploy.dialog.ok"));
+        addButton.setText(RemoteDeployBundle.message("common.add"));
+        editButton.setText(RemoteDeployBundle.message("common.edit"));
+        removeButton.setText(RemoteDeployBundle.message("common.remove"));
+        localPathDescriptor.setTitle(RemoteDeployBundle.message("chooser.localPath.title"));
+        localPathDescriptor.setDescription(RemoteDeployBundle.message("chooser.localPath.description"));
+        rebuildCenterPanel();
+    }
+
+    private void rebuildCenterPanel() {
+        centerPanel.removeAll();
+        centerPanel.add(
+            FormBuilder.createFormBuilder()
+                .addLabeledComponent(RemoteDeployBundle.message("common.language"), languageComboBox)
+                .addLabeledComponent(RemoteDeployBundle.message("field.server"), serverRow)
+                .addLabeledComponent(RemoteDeployBundle.message("field.localPath"), localPathField)
+                .addLabeledComponent(RemoteDeployBundle.message("field.remoteDirectory"), remoteDirectoryField)
+                .addLabeledComponentFillVertically(RemoteDeployBundle.message("field.remoteCommand"), commandScrollPane)
+                .getPanel(),
+            BorderLayout.CENTER
+        );
+        centerPanel.revalidate();
+        centerPanel.repaint();
     }
 }

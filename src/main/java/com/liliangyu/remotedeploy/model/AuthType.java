@@ -1,18 +1,20 @@
 package com.liliangyu.remotedeploy.model;
 
+import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
+
 /** Supported authentication modes for an SSH deployment target. */
 public enum AuthType {
-    PASSWORD("Password"),
-    PRIVATE_KEY("Private Key");
+    PASSWORD("auth.password"),
+    PRIVATE_KEY("auth.privateKey");
 
-    private final String displayName;
+    private final String messageKey;
 
-    AuthType(String displayName) {
-        this.displayName = displayName;
+    AuthType(String messageKey) {
+        this.messageKey = messageKey;
     }
 
     @Override
     public String toString() {
-        return displayName;
+        return RemoteDeployBundle.message(messageKey);
     }
 }

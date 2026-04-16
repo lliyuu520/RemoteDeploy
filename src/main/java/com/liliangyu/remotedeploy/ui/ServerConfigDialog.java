@@ -1,5 +1,6 @@
 package com.liliangyu.remotedeploy.ui;
 
+import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -13,10 +14,13 @@ import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
+import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
+import com.liliangyu.remotedeploy.i18n.UiLanguage;
 import com.liliangyu.remotedeploy.model.AuthType;
 import com.liliangyu.remotedeploy.model.ServerConfig;
 import com.liliangyu.remotedeploy.service.SecretStorage;
 import com.liliangyu.remotedeploy.service.SshDeployService;
+import com.liliangyu.remotedeploy.settings.RemoteDeploySettingsService;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.AbstractAction;
@@ -46,6 +50,7 @@ public final class ServerConfigDialog extends DialogWrapper {
     private final @Nullable Project project;
     private final @Nullable ServerConfig existingConfig;
     private final SshDeployService sshDeployService = new SshDeployService();
+    private final JComboBox<UiLanguage> languageComboBox = new JComboBox<>(UiLanguage.values());
     private final JBTextField nameField = new JBTextField();
     private final JBTextField hostField = new JBTextField();
     private final JSpinner portSpinner = new JSpinner(new SpinnerNumberModel(22, 1, 65535, 1));
@@ -54,7 +59,15 @@ public final class ServerConfigDialog extends DialogWrapper {
     private final JPasswordField passwordField = new JPasswordField();
     private final TextFieldWithBrowseButton keyPathField = new TextFieldWithBrowseButton();
     private final JPasswordField passphraseField = new JPasswordField();
+    private final FileChooserDescriptor keyDescriptor = FileChooserDescriptorFactory.createSingleFileDescriptor();
     private final JPanel authDetailsPanel = new JPanel(new CardLayout());
+    private final JPanel centerPanel = new JPanel(new java.awt.BorderLayout());
+    private final Action testConnectionAction = new AbstractAction() {
+        @Override
+        public void actionPerformed(ActionEvent event) {
+            testConnection();
+        }
+    };
 
     private Result result;
 
@@ -63,20 +76,22 @@ public final class ServerConfigDialog extends DialogWrapper {
         this.project = project;
         this.existingConfig = existingConfig == null ? null : new ServerConfig(existingConfig);
 
-        setTitle(existingConfig == null ? "Add Server" : "Edit Server");
-        setOKButtonText("Save");
+        setTitle(existingConfig == null
+            ? RemoteDeployBundle.message("server.dialog.title.add")
+            : RemoteDeployBundle.message("server.dialog.title.edit"));
+        setOKButtonText(RemoteDeployBundle.message("common.save"));
         setResizable(true);
 
-        var keyDescriptor = FileChooserDescriptorFactory.createSingleFileDescriptor();
-        keyDescriptor.setTitle("Select Private Key");
-        keyDescriptor.setDescription("Choose an existing SSH private key file.");
         keyPathField.addBrowseFolderListener(new TextBrowseFolderListener(keyDescriptor, project));
+        languageComboBox.setSelectedItem(RemoteDeploySettingsService.getInstance().getUiLanguage());
+        languageComboBox.addActionListener(event -> applySelectedLanguage());
         authTypeComboBox.addActionListener(event -> updateAuthDetailsCard());
 
         loadInitialValues();
         init();
         updateAuthDetailsCard();
         initValidation();
+        refreshTexts();
     }
 
     public @Nullable Result getResult() {
@@ -85,33 +100,13 @@ public final class ServerConfigDialog extends DialogWrapper {
 
     @Override
     protected Action[] createLeftSideActions() {
-        return new Action[]{new AbstractAction("Test Connection") {
-            @Override
-            public void actionPerformed(ActionEvent event) {
-                testConnection();
-            }
-        }};
+        return new Action[]{testConnectionAction};
     }
 
     @Override
     protected @Nullable JComponent createCenterPanel() {
-        authDetailsPanel.add(FormBuilder.createFormBuilder().addLabeledComponent("Password:", passwordField).getPanel(), PASSWORD_CARD);
-        authDetailsPanel.add(
-            FormBuilder.createFormBuilder()
-                .addLabeledComponent("Private key:", keyPathField)
-                .addLabeledComponent("Passphrase:", passphraseField)
-                .getPanel(),
-            KEY_CARD
-        );
-
-        return FormBuilder.createFormBuilder()
-            .addLabeledComponent("Name:", nameField)
-            .addLabeledComponent("Host:", hostField)
-            .addLabeledComponent("Port:", portSpinner)
-            .addLabeledComponent("Username:", usernameField)
-            .addLabeledComponent("Authentication:", authTypeComboBox)
-            .addComponent(authDetailsPanel)
-            .getPanel();
+        rebuildCenterPanel();
+        return centerPanel;
     }
 
     @Override
@@ -123,29 +118,29 @@ public final class ServerConfigDialog extends DialogWrapper {
     @Override
     protected @Nullable ValidationInfo doValidate() {
         if (nameField.getText().trim().isEmpty()) {
-            return new ValidationInfo("Name is required.", nameField);
+            return new ValidationInfo(RemoteDeployBundle.message("server.dialog.validation.nameRequired"), nameField);
         }
         if (hostField.getText().trim().isEmpty()) {
-            return new ValidationInfo("Host is required.", hostField);
+            return new ValidationInfo(RemoteDeployBundle.message("server.dialog.validation.hostRequired"), hostField);
         }
         if (usernameField.getText().trim().isEmpty()) {
-            return new ValidationInfo("Username is required.", usernameField);
+            return new ValidationInfo(RemoteDeployBundle.message("server.dialog.validation.usernameRequired"), usernameField);
         }
         if ((Integer) portSpinner.getValue() <= 0) {
-            return new ValidationInfo("Port must be greater than 0.", portSpinner);
+            return new ValidationInfo(RemoteDeployBundle.message("server.dialog.validation.portInvalid"), portSpinner);
         }
 
         AuthType authType = (AuthType) authTypeComboBox.getSelectedItem();
         if (authType == AuthType.PASSWORD && readPassword().isBlank()) {
-            return new ValidationInfo("Password is required for password authentication.", passwordField);
+            return new ValidationInfo(RemoteDeployBundle.message("server.dialog.validation.passwordRequired"), passwordField);
         }
         if (authType == AuthType.PRIVATE_KEY) {
             String keyPath = keyPathField.getText().trim();
             if (keyPath.isEmpty()) {
-                return new ValidationInfo("Private key path is required for key authentication.", keyPathField);
+                return new ValidationInfo(RemoteDeployBundle.message("server.dialog.validation.privateKeyRequired"), keyPathField);
             }
             if (!Files.isRegularFile(Path.of(keyPath))) {
-                return new ValidationInfo("Private key file does not exist.", keyPathField);
+                return new ValidationInfo(RemoteDeployBundle.message("server.dialog.validation.privateKeyMissing"), keyPathField);
             }
         }
         return null;
@@ -189,7 +184,7 @@ public final class ServerConfigDialog extends DialogWrapper {
         ValidationInfo validation = doValidate();
         if (validation != null) {
             validation.component.requestFocusInWindow();
-            Messages.showErrorDialog(project, validation.message, "Test Connection");
+            Messages.showErrorDialog(project, validation.message, RemoteDeployBundle.message("server.dialog.testConnection.title"));
             return;
         }
 
@@ -206,15 +201,19 @@ public final class ServerConfigDialog extends DialogWrapper {
                     );
                     return null;
                 },
-                "Testing SSH Connection",
+                RemoteDeployBundle.message("server.dialog.testConnection.progress"),
                 true,
                 project
             );
-            Messages.showInfoMessage(project, "Connected to " + server.getHost() + " successfully.", "Test Connection");
+            Messages.showInfoMessage(
+                project,
+                RemoteDeployBundle.message("server.dialog.testConnection.success", server.getHost()),
+                RemoteDeployBundle.message("server.dialog.testConnection.title")
+            );
         } catch (ProcessCanceledException ignored) {
             // User canceled the modal progress dialog; keep the editor state unchanged.
         } catch (IOException exception) {
-            Messages.showErrorDialog(project, exception.getMessage(), "Test Connection Failed");
+            Messages.showErrorDialog(project, exception.getMessage(), RemoteDeployBundle.message("server.dialog.testConnection.failure"));
         }
     }
 
@@ -234,6 +233,65 @@ public final class ServerConfigDialog extends DialogWrapper {
 
     private static ComboBoxModel<AuthType> authModel() {
         return new DefaultComboBoxModel<>(AuthType.values());
+    }
+
+    private void applySelectedLanguage() {
+        RemoteDeploySettingsService.getInstance().setUiLanguage((UiLanguage) languageComboBox.getSelectedItem());
+        refreshTexts();
+    }
+
+    /**
+     * Updates dialog labels and chooser metadata from the selected language without discarding the current form values.
+     */
+    private void refreshTexts() {
+        setTitle(existingConfig == null
+            ? RemoteDeployBundle.message("server.dialog.title.add")
+            : RemoteDeployBundle.message("server.dialog.title.edit"));
+        setOKButtonText(RemoteDeployBundle.message("common.save"));
+        testConnectionAction.putValue(Action.NAME, RemoteDeployBundle.message("server.dialog.testConnection"));
+        keyDescriptor.setTitle(RemoteDeployBundle.message("chooser.privateKey.title"));
+        keyDescriptor.setDescription(RemoteDeployBundle.message("chooser.privateKey.description"));
+        authTypeComboBox.repaint();
+        rebuildAuthDetailsPanel();
+        rebuildCenterPanel();
+    }
+
+    private void rebuildAuthDetailsPanel() {
+        authDetailsPanel.removeAll();
+        authDetailsPanel.add(
+            FormBuilder.createFormBuilder()
+                .addLabeledComponent(RemoteDeployBundle.message("field.password"), passwordField)
+                .getPanel(),
+            PASSWORD_CARD
+        );
+        authDetailsPanel.add(
+            FormBuilder.createFormBuilder()
+                .addLabeledComponent(RemoteDeployBundle.message("field.privateKey"), keyPathField)
+                .addLabeledComponent(RemoteDeployBundle.message("field.passphrase"), passphraseField)
+                .getPanel(),
+            KEY_CARD
+        );
+        updateAuthDetailsCard();
+        authDetailsPanel.revalidate();
+        authDetailsPanel.repaint();
+    }
+
+    private void rebuildCenterPanel() {
+        centerPanel.removeAll();
+        centerPanel.add(
+            FormBuilder.createFormBuilder()
+                .addLabeledComponent(RemoteDeployBundle.message("common.language"), languageComboBox)
+                .addLabeledComponent(RemoteDeployBundle.message("field.name"), nameField)
+                .addLabeledComponent(RemoteDeployBundle.message("field.host"), hostField)
+                .addLabeledComponent(RemoteDeployBundle.message("field.port"), portSpinner)
+                .addLabeledComponent(RemoteDeployBundle.message("field.username"), usernameField)
+                .addLabeledComponent(RemoteDeployBundle.message("field.authentication"), authTypeComboBox)
+                .addComponent(authDetailsPanel)
+                .getPanel(),
+            java.awt.BorderLayout.CENTER
+        );
+        centerPanel.revalidate();
+        centerPanel.repaint();
     }
 
     public record Result(ServerConfig server, String password, String passphrase) {

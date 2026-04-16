@@ -1,6 +1,7 @@
 package com.liliangyu.remotedeploy.service;
 
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
 import com.liliangyu.remotedeploy.model.AuthType;
 import com.liliangyu.remotedeploy.model.DeploymentException;
 import com.liliangyu.remotedeploy.model.DeploymentRequest;
@@ -33,7 +34,7 @@ public final class SshDeployService {
     public DeploymentResult deploy(DeploymentRequest request, ProgressIndicator indicator) throws IOException {
         Path localPath = Path.of(request.localPath());
         if (!Files.exists(localPath)) {
-            throw new IOException("Local path does not exist: " + localPath);
+            throw new IOException(RemoteDeployBundle.message("service.validation.localPathMissing", localPath));
         }
 
         ServerConfig server = request.server();
@@ -49,14 +50,14 @@ public final class SshDeployService {
                 return new DeploymentResult(uploadedPaths, "", "", null);
             }
 
-            indicator.setText("Running remote command");
+            indicator.setText(RemoteDeployBundle.message("service.progress.runningRemoteCommand"));
             CommandResult commandResult = executeCommand(
                 client,
                 RemoteCommandSupport.buildExecCommand(remoteDirectory, request.command())
             );
             DeploymentResult result = new DeploymentResult(uploadedPaths, commandResult.stdout(), commandResult.stderr(), commandResult.exitCode());
             if (!result.commandSucceeded()) {
-                throw new DeploymentException("Remote command exited with status " + result.exitCode() + ".", result);
+                throw new DeploymentException(RemoteDeployBundle.message("service.command.exitStatus", result.exitCode()), result);
             }
             return result;
         }
@@ -67,7 +68,7 @@ public final class SshDeployService {
      */
     public void testConnection(ServerConfig server, String password, String passphrase, ProgressIndicator indicator) throws IOException {
         try (SSHClient client = openClient(server, indicator, password, passphrase)) {
-            indicator.setText("Connection successful");
+            indicator.setText(RemoteDeployBundle.message("service.progress.connectionSuccessful"));
         }
     }
 
@@ -77,7 +78,7 @@ public final class SshDeployService {
     private SSHClient openClient(ServerConfig server, ProgressIndicator indicator, String passwordOverride, String passphraseOverride)
         throws IOException {
         indicator.checkCanceled();
-        indicator.setText("Connecting to " + server.getHost());
+        indicator.setText(RemoteDeployBundle.message("service.progress.connecting", server.getHost()));
 
         SSHClient client = new SSHClient();
         try {
@@ -104,7 +105,7 @@ public final class SshDeployService {
         if (server.getAuthType() == AuthType.PASSWORD) {
             String password = passwordOverride != null ? passwordOverride.trim() : SecretStorage.loadPassword(server.getId());
             if (password.isBlank()) {
-                throw new IOException("No password stored for server: " + server.getName());
+                throw new IOException(RemoteDeployBundle.message("service.auth.passwordMissing", server.getName()));
             }
             client.authPassword(server.getUsername(), password);
             return;
@@ -112,10 +113,10 @@ public final class SshDeployService {
 
         String keyPath = server.getPrivateKeyPath();
         if (keyPath == null || keyPath.isBlank()) {
-            throw new IOException("No private key configured for server: " + server.getName());
+            throw new IOException(RemoteDeployBundle.message("service.auth.privateKeyMissing", server.getName()));
         }
         if (!Files.isRegularFile(Path.of(keyPath))) {
-            throw new IOException("Private key file does not exist: " + keyPath);
+            throw new IOException(RemoteDeployBundle.message("service.auth.privateKeyFileMissing", keyPath));
         }
 
         String passphrase = passphraseOverride != null ? passphraseOverride.trim() : SecretStorage.loadPassphrase(server.getId());
@@ -133,7 +134,7 @@ public final class SshDeployService {
         if (Files.isRegularFile(localPath)) {
             indicator.checkCanceled();
             String remoteFile = joinRemotePath(remoteDirectory, localPath.getFileName().toString());
-            indicator.setText("Uploading " + localPath.getFileName());
+            indicator.setText(RemoteDeployBundle.message("service.progress.uploadingRoot", localPath.getFileName()));
             sftpClient.put(localPath.toString(), remoteFile);
             indicator.setFraction(1.0d);
             uploadedPaths.add(remoteFile);
@@ -159,7 +160,7 @@ public final class SshDeployService {
                     continue;
                 }
 
-                indicator.setText("Uploading " + relativePath);
+                indicator.setText(RemoteDeployBundle.message("service.progress.uploadingRelative", relativePath));
                 sftpClient.put(path.toString(), remotePath);
                 uploadedPaths.add(remotePath);
                 uploadedCount++;
@@ -189,20 +190,20 @@ public final class SshDeployService {
             return future.get();
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IOException("Interrupted while reading remote command output.", exception);
+            throw new IOException(RemoteDeployBundle.message("service.command.outputInterrupted"), exception);
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause();
             if (cause instanceof IOException ioException) {
                 throw ioException;
             }
-            throw new IOException("Failed to read remote command output.", cause);
+            throw new IOException(RemoteDeployBundle.message("service.command.outputReadFailed"), cause);
         }
     }
 
     private String normalizeRemoteDirectory(String remoteDirectory) throws IOException {
         String normalized = remoteDirectory == null ? "" : remoteDirectory.trim().replace('\\', '/');
         if (normalized.isBlank()) {
-            throw new IOException("Remote directory is required.");
+            throw new IOException(RemoteDeployBundle.message("service.validation.remoteDirectoryRequired"));
         }
         if (normalized.length() > 1 && normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);

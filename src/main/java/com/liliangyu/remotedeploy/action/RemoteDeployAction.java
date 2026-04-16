@@ -16,6 +16,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
 import com.liliangyu.remotedeploy.model.DeploymentException;
 import com.liliangyu.remotedeploy.model.DeploymentRequest;
 import com.liliangyu.remotedeploy.model.DeploymentResult;
@@ -31,9 +32,23 @@ public final class RemoteDeployAction extends AnAction {
 
     private final SshDeployService sshDeployService = new SshDeployService();
 
+    public RemoteDeployAction() {
+        super(
+            RemoteDeployBundle.message("action.remoteDeploy.text"),
+            RemoteDeployBundle.message("action.remoteDeploy.description"),
+            null
+        );
+    }
+
     @Override
     public @NotNull ActionUpdateThread getActionUpdateThread() {
         return ActionUpdateThread.BGT;
+    }
+
+    @Override
+    public void update(@NotNull AnActionEvent event) {
+        event.getPresentation().setText(RemoteDeployBundle.message("action.remoteDeploy.text"));
+        event.getPresentation().setDescription(RemoteDeployBundle.message("action.remoteDeploy.description"));
     }
 
     @Override
@@ -45,7 +60,11 @@ public final class RemoteDeployAction extends AnAction {
         }
 
         DeploymentRequest request = dialog.getRequest();
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Remote Deploy", true) {
+        ProgressManager.getInstance().run(new Task.Backgroundable(
+            project,
+            RemoteDeployBundle.message("action.remoteDeploy.progress"),
+            true
+        ) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
                 indicator.setIndeterminate(false);
@@ -53,7 +72,12 @@ public final class RemoteDeployAction extends AnAction {
                     DeploymentResult result = sshDeployService.deploy(request, indicator);
                     invokeLater(() -> showSuccess(project, request, result));
                 } catch (ProcessCanceledException ignored) {
-                    invokeLater(() -> showNotification(project, "Deployment canceled", "Remote deploy was canceled.", NotificationType.WARNING));
+                    invokeLater(() -> showNotification(
+                        project,
+                        RemoteDeployBundle.message("action.remoteDeploy.notification.canceled.title"),
+                        RemoteDeployBundle.message("action.remoteDeploy.notification.canceled.content"),
+                        NotificationType.WARNING
+                    ));
                 } catch (DeploymentException exception) {
                     LOG.warn("Remote command failed after upload.", exception);
                     invokeLater(() -> showDeploymentFailure(project, exception));
@@ -66,29 +90,50 @@ public final class RemoteDeployAction extends AnAction {
     }
 
     private void showSuccess(Project project, DeploymentRequest request, DeploymentResult result) {
-        String content = "Uploaded " + result.uploadedPaths().size() + " item(s) to "
-            + request.server().getName() + "." + (result.exitCode() == null ? "" : " Command exit code: " + result.exitCode() + ".");
-                showNotification(project, "Deployment finished", content, NotificationType.INFORMATION);
+        String exitCodeText = result.exitCode() == null
+            ? ""
+            : RemoteDeployBundle.message("action.remoteDeploy.notification.success.exitCode", result.exitCode());
+        String content = RemoteDeployBundle.message(
+            "action.remoteDeploy.notification.success.content",
+            result.uploadedPaths().size(),
+            request.server().getName(),
+            exitCodeText
+        );
+        showNotification(
+            project,
+            RemoteDeployBundle.message("action.remoteDeploy.notification.success.title"),
+            content,
+            NotificationType.INFORMATION
+        );
         if (result.hasOutput()) {
-            new ExecutionOutputDialog(project, "Remote Command Output", formatOutput(result)).show();
+            new ExecutionOutputDialog(project, RemoteDeployBundle.message("action.remoteDeploy.output.title"), formatOutput(result)).show();
         }
     }
 
     private void showDeploymentFailure(Project project, DeploymentException exception) {
         DeploymentResult result = exception.getResult();
-        String content = "Upload completed, but the remote command failed with exit code " + result.exitCode() + ".";
-                showNotification(project, "Deployment failed", content, NotificationType.ERROR);
-        new ExecutionOutputDialog(project, "Remote Command Output", formatOutput(result)).show();
+        String content = RemoteDeployBundle.message("action.remoteDeploy.notification.failure.content", result.exitCode());
+        showNotification(
+            project,
+            RemoteDeployBundle.message("action.remoteDeploy.notification.failure.title"),
+            content,
+            NotificationType.ERROR
+        );
+        new ExecutionOutputDialog(project, RemoteDeployBundle.message("action.remoteDeploy.output.title"), formatOutput(result)).show();
     }
 
     private void showUnexpectedFailure(Project project, Exception exception) {
-        Messages.showErrorDialog(project, exception.getMessage(), "Remote Deploy Failed");
+        Messages.showErrorDialog(
+            project,
+            exception.getMessage(),
+            RemoteDeployBundle.message("action.remoteDeploy.unexpectedFailure.title")
+        );
     }
 
-            private void showNotification(Project project, String title, String content, NotificationType type) {
-                NotificationGroupManager.getInstance()
-                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
-                    .createNotification(title, content, type)
+    private void showNotification(Project project, String title, String content, NotificationType type) {
+        NotificationGroupManager.getInstance()
+            .getNotificationGroup(NOTIFICATION_GROUP_ID)
+            .createNotification(title, content, type)
             .notify(project);
     }
 
@@ -105,12 +150,25 @@ public final class RemoteDeployAction extends AnAction {
     }
 
     private String formatOutput(DeploymentResult result) {
+        String exitCodeText = result.exitCode() == null
+            ? RemoteDeployBundle.message("run.profile.exitCode.na")
+            : String.valueOf(result.exitCode());
         StringBuilder builder = new StringBuilder();
-        builder.append("Exit code: ").append(result.exitCode() == null ? "n/a" : result.exitCode()).append(System.lineSeparator()).append(System.lineSeparator());
-        builder.append("STDOUT").append(System.lineSeparator()).append("------").append(System.lineSeparator());
-        builder.append(result.stdout().isBlank() ? "<empty>" : result.stdout()).append(System.lineSeparator()).append(System.lineSeparator());
-        builder.append("STDERR").append(System.lineSeparator()).append("------").append(System.lineSeparator());
-        builder.append(result.stderr().isBlank() ? "<empty>" : result.stderr());
+        builder.append(RemoteDeployBundle.message("action.remoteDeploy.output.exitCode", exitCodeText))
+            .append(System.lineSeparator())
+            .append(System.lineSeparator());
+        builder.append(RemoteDeployBundle.message("action.remoteDeploy.output.stdout"))
+            .append(System.lineSeparator())
+            .append(RemoteDeployBundle.message("action.remoteDeploy.output.separator"))
+            .append(System.lineSeparator());
+        builder.append(result.stdout().isBlank() ? RemoteDeployBundle.message("action.remoteDeploy.output.empty") : result.stdout())
+            .append(System.lineSeparator())
+            .append(System.lineSeparator());
+        builder.append(RemoteDeployBundle.message("action.remoteDeploy.output.stderr"))
+            .append(System.lineSeparator())
+            .append(RemoteDeployBundle.message("action.remoteDeploy.output.separator"))
+            .append(System.lineSeparator());
+        builder.append(result.stderr().isBlank() ? RemoteDeployBundle.message("action.remoteDeploy.output.empty") : result.stderr());
         return builder.toString();
     }
 }

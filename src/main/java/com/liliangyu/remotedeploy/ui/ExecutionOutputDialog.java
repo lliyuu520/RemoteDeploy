@@ -5,6 +5,7 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTextArea;
 import com.intellij.util.ui.JBUI;
+import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.JComponent;
@@ -18,7 +19,7 @@ public final class ExecutionOutputDialog extends DialogWrapper {
         super(project);
         this.output = output;
         setTitle(title);
-        setOKButtonText("Close");
+        setOKButtonText(RemoteDeployBundle.message("common.close"));
         setResizable(true);
         init();
     }

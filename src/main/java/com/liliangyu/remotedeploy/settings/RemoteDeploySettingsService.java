@@ -5,6 +5,7 @@ import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
+import com.liliangyu.remotedeploy.i18n.UiLanguage;
 import com.liliangyu.remotedeploy.model.ServerConfig;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -80,6 +81,17 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
     }
 
     /**
+     * Stores the preferred plugin UI language separately from the IDE locale so users can switch at runtime.
+     */
+    public UiLanguage getUiLanguage() {
+        return UiLanguage.fromId(state.uiLanguage);
+    }
+
+    public void setUiLanguage(UiLanguage language) {
+        state.uiLanguage = (language == null ? UiLanguage.ENGLISH : language).id();
+    }
+
+    /**
      * Returns deploy command suggestions from recent history plus the current editor value.
      */
     public List<String> getDeployCommandTemplates(String currentValue) {
@@ -97,6 +109,7 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
         RemoteDeploySettingsState copy = new RemoteDeploySettingsState();
         if (source != null) {
             copy.lastServerId = source.lastServerId == null ? "" : source.lastServerId;
+            copy.uiLanguage = UiLanguage.fromId(source.uiLanguage).id();
             for (ServerConfig server : source.servers) {
                 copy.servers.add(new ServerConfig(server));
             }

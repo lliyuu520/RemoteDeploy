@@ -4,11 +4,11 @@ import com.intellij.execution.DefaultExecutionResult;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.ExecutionResult;
 import com.intellij.execution.configurations.RunProfileState;
+import com.intellij.execution.filters.TextConsoleBuilderFactory;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.ui.ConsoleView;
-import com.intellij.execution.filters.TextConsoleBuilderFactory;
 import com.intellij.ide.macro.Macro;
 import com.intellij.ide.macro.MacroManager;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -18,6 +18,7 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.openapi.project.Project;
+import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
 import com.liliangyu.remotedeploy.model.DeploymentException;
 import com.liliangyu.remotedeploy.model.DeploymentRequest;
 import com.liliangyu.remotedeploy.model.DeploymentResult;
@@ -66,7 +67,7 @@ public final class RemoteDeployRunProfileState implements RunProfileState {
             RemoteDeploySettingsService settingsService = RemoteDeploySettingsService.getInstance();
             Optional<ServerConfig> serverConfig = settingsService.findServer(configuration.getServerId());
             if (serverConfig.isEmpty()) {
-                printSystem(handler, "Server not found. Open the configuration and select a valid server.");
+                printSystem(handler, RemoteDeployBundle.message("run.profile.serverMissing"));
                 handler.terminate(1);
                 return;
             }
@@ -76,27 +77,27 @@ public final class RemoteDeployRunProfileState implements RunProfileState {
             String remoteDirectory = normalizeValue(configuration.getRemoteDirectory());
             String command = normalizeValue(configuration.getCommand());
 
-            printSystem(handler, "Connecting to " + server.getName() + " (" + server.getHost() + ")");
+            printSystem(handler, RemoteDeployBundle.message("run.profile.connecting", server.getName(), server.getHost()));
 
             DeploymentRequest request = new DeploymentRequest(server, localPath, remoteDirectory, command);
             DeploymentResult result = new SshDeployService().deploy(request, indicator);
 
-            printSystem(handler, "Upload finished. Uploaded " + result.uploadedPaths().size() + " item(s).");
+            printSystem(handler, RemoteDeployBundle.message("run.profile.uploadFinished", result.uploadedPaths().size()));
             printCommandOutput(handler, result);
             handler.terminate(result.commandSucceeded() ? 0 : exitCodeOrDefault(result, 1));
         } catch (ProcessCanceledException canceled) {
-            printSystem(handler, "Deployment canceled.");
+            printSystem(handler, RemoteDeployBundle.message("run.profile.canceled"));
             handler.terminate(1);
         } catch (DeploymentException deploymentException) {
             printSystem(handler, deploymentException.getMessage());
             printCommandOutput(handler, deploymentException.getResult());
             handler.terminate(exitCodeOrDefault(deploymentException.getResult(), 1));
         } catch (Macro.ExecutionCancelledException macroException) {
-            printSystem(handler, "Macro expansion was canceled.");
+            printSystem(handler, RemoteDeployBundle.message("run.profile.macroCanceled"));
             handler.terminate(1);
         } catch (Exception exception) {
             LOG.warn("Remote deploy failed.", exception);
-            printError(handler, "Remote deploy failed: " + exception.getMessage());
+            printError(handler, RemoteDeployBundle.message("run.profile.failed", exception.getMessage()));
             handler.terminate(1);
         }
     }
@@ -115,7 +116,10 @@ public final class RemoteDeployRunProfileState implements RunProfileState {
         if (!result.hasOutput()) {
             return;
         }
-        printSystem(handler, "Exit code: " + (result.exitCode() == null ? "n/a" : result.exitCode()));
+        String exitCode = result.exitCode() == null
+            ? RemoteDeployBundle.message("run.profile.exitCode.na")
+            : String.valueOf(result.exitCode());
+        printSystem(handler, RemoteDeployBundle.message("run.profile.exitCode", exitCode));
         if (!result.stdout().isBlank()) {
             printStdout(handler, result.stdout());
         }
