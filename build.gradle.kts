@@ -20,8 +20,6 @@ dependencies {
 
     intellijPlatform {
         local(providers.gradleProperty("platformPath"))
-        bundledPlugin("org.jetbrains.plugins.go")
-        bundledPlugin("org.jetbrains.plugins.terminal")
         testFramework(TestFrameworkType.Platform)
     }
 }
