@@ -152,7 +152,9 @@ If you are publishing, forking, or contributing to this project, review these fi
 
 - [Contributing Guide](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
+- [Third-Party Materials](THIRD_PARTY.md)
 - [Open Source Release Checklist](docs/open-source-release-checklist.md)
+- [Open Source Owner Questionnaire](docs/open-source-owner-questionnaire.md)
 
 ## Development Notes
 
