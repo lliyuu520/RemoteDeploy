@@ -7,7 +7,7 @@ import com.intellij.openapi.project.Project;
 import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
 
 /**
- * Registers the Remote Deploy run configuration and exposes multiple preset factories in Run/Debug UI.
+ * Registers a single reusable Remote Deploy run configuration template in the Run/Debug UI.
  */
 public final class RemoteDeployConfigurationType extends ConfigurationTypeBase {
     public static final String ID = "RemoteDeployConfigurationType";
@@ -26,20 +26,6 @@ public final class RemoteDeployConfigurationType extends ConfigurationTypeBase {
             "$ProjectFileDir$",
             "",
             ""
-        ));
-        addFactory(new RemoteDeployConfigurationFactory(
-            this,
-            "run.config.factory.uploadOnly",
-            "$ProjectFileDir$",
-            "",
-            ""
-        ));
-        addFactory(new RemoteDeployConfigurationFactory(
-            this,
-            "run.config.factory.deployScript",
-            "$ProjectFileDir$",
-            "",
-            "bash deploy.sh"
         ));
     }
 

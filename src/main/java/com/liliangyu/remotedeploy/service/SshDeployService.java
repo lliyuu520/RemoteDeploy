@@ -7,11 +7,10 @@ import com.liliangyu.remotedeploy.model.DeploymentException;
 import com.liliangyu.remotedeploy.model.DeploymentRequest;
 import com.liliangyu.remotedeploy.model.DeploymentResult;
 import com.liliangyu.remotedeploy.model.ServerConfig;
-import net.schmizz.sshj.SSHClient;
 import net.schmizz.sshj.common.IOUtils;
 import net.schmizz.sshj.connection.channel.direct.Session;
 import net.schmizz.sshj.sftp.SFTPClient;
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
+import net.schmizz.sshj.SSHClient;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +27,8 @@ import java.util.concurrent.Future;
  * Runs the full deployment workflow: connect, authenticate, upload, then optionally execute a remote command.
  */
 public final class SshDeployService {
+    private final SshConnectionService sshConnectionService = new SshConnectionService();
+
     /**
      * Executes the minimum viable deployment flow against a single SSH target.
      */
@@ -38,12 +39,12 @@ public final class SshDeployService {
         }
 
         ServerConfig server = request.server();
-        String remoteDirectory = normalizeRemoteDirectory(request.remoteDirectory());
+        String remoteDirectory = RemotePathSupport.requireDirectory(request.remoteDirectory());
         List<String> uploadedPaths = new ArrayList<>();
 
-        try (SSHClient client = openClient(server, indicator, null, null)) {
+        try (SSHClient client = sshConnectionService.openClient(server, indicator, null, null)) {
             try (SFTPClient sftpClient = client.newSFTPClient()) {
-                uploadLocalPath(localPath, remoteDirectory, sftpClient, indicator, uploadedPaths);
+                uploadLocalPath(localPath, remoteDirectory, request, sftpClient, indicator, uploadedPaths);
             }
 
             if (request.command().isBlank()) {
@@ -67,73 +68,21 @@ public final class SshDeployService {
      * Verifies the current server form values can open and authenticate an SSH session before the dialog is saved.
      */
     public void testConnection(ServerConfig server, String password, String passphrase, ProgressIndicator indicator) throws IOException {
-        try (SSHClient client = openClient(server, indicator, password, passphrase)) {
+        try (SSHClient client = sshConnectionService.openClient(server, indicator, password, passphrase)) {
             indicator.setText(RemoteDeployBundle.message("service.progress.connectionSuccessful"));
         }
     }
 
     /**
-     * Opens an SSH transport and authenticates it once so deploy and connection-test flows stay aligned.
-     */
-    private SSHClient openClient(ServerConfig server, ProgressIndicator indicator, String passwordOverride, String passphraseOverride)
-        throws IOException {
-        indicator.checkCanceled();
-        indicator.setText(RemoteDeployBundle.message("service.progress.connecting", server.getHost()));
-
-        SSHClient client = new SSHClient();
-        try {
-            // Personal-use MVP: trust-on-first-use is postponed so the first version stays frictionless.
-            client.addHostKeyVerifier(new PromiscuousVerifier());
-            client.connect(server.getHost(), server.getPort());
-            indicator.checkCanceled();
-            authenticate(client, server, passwordOverride, passphraseOverride);
-            return client;
-        } catch (IOException exception) {
-            try {
-                client.close();
-            } catch (IOException closeException) {
-                exception.addSuppressed(closeException);
-            }
-            throw exception;
-        }
-    }
-
-    /**
-     * Resolves the configured auth mode and the corresponding secret before opening SFTP or shell sessions.
-     */
-    private void authenticate(SSHClient client, ServerConfig server, String passwordOverride, String passphraseOverride) throws IOException {
-        if (server.getAuthType() == AuthType.PASSWORD) {
-            String password = passwordOverride != null ? passwordOverride.trim() : SecretStorage.loadPassword(server.getId());
-            if (password.isBlank()) {
-                throw new IOException(RemoteDeployBundle.message("service.auth.passwordMissing", server.getName()));
-            }
-            client.authPassword(server.getUsername(), password);
-            return;
-        }
-
-        String keyPath = server.getPrivateKeyPath();
-        if (keyPath == null || keyPath.isBlank()) {
-            throw new IOException(RemoteDeployBundle.message("service.auth.privateKeyMissing", server.getName()));
-        }
-        if (!Files.isRegularFile(Path.of(keyPath))) {
-            throw new IOException(RemoteDeployBundle.message("service.auth.privateKeyFileMissing", keyPath));
-        }
-
-        String passphrase = passphraseOverride != null ? passphraseOverride.trim() : SecretStorage.loadPassphrase(server.getId());
-        char[] passphraseChars = passphrase.isBlank() ? null : passphrase.toCharArray();
-        client.authPublickey(server.getUsername(), client.loadKeys(keyPath, passphraseChars));
-    }
-
-    /**
      * Treats the remote input as a target directory: files land directly inside it and folders keep their top-level name.
      */
-    private void uploadLocalPath(Path localPath, String remoteDirectory, SFTPClient sftpClient, ProgressIndicator indicator,
+    private void uploadLocalPath(Path localPath, String remoteDirectory, DeploymentRequest request, SFTPClient sftpClient, ProgressIndicator indicator,
                                  List<String> uploadedPaths) throws IOException {
         sftpClient.mkdirs(remoteDirectory);
 
         if (Files.isRegularFile(localPath)) {
             indicator.checkCanceled();
-            String remoteFile = joinRemotePath(remoteDirectory, localPath.getFileName().toString());
+            String remoteFile = RemotePathSupport.join(remoteDirectory, resolveRemoteFileName(localPath.getFileName().toString(), request));
             indicator.setText(RemoteDeployBundle.message("service.progress.uploadingRoot", localPath.getFileName()));
             sftpClient.put(localPath.toString(), remoteFile);
             indicator.setFraction(1.0d);
@@ -141,7 +90,7 @@ public final class SshDeployService {
             return;
         }
 
-        String remoteRoot = joinRemotePath(remoteDirectory, localPath.getFileName().toString());
+        String remoteRoot = RemotePathSupport.join(remoteDirectory, localPath.getFileName().toString());
         sftpClient.mkdirs(remoteRoot);
 
         long totalFiles = Files.walk(localPath).filter(Files::isRegularFile).count();
@@ -153,7 +102,7 @@ public final class SshDeployService {
                 Path relativePath = localPath.relativize(path);
                 String remotePath = relativePath.getNameCount() == 0
                     ? remoteRoot
-                    : joinRemotePath(remoteRoot, relativePath.toString().replace('\\', '/'));
+                    : RemotePathSupport.join(remoteRoot, relativePath.toString().replace('\\', '/'));
 
                 if (Files.isDirectory(path)) {
                     sftpClient.mkdirs(remotePath);
@@ -200,19 +149,28 @@ public final class SshDeployService {
         }
     }
 
-    private String normalizeRemoteDirectory(String remoteDirectory) throws IOException {
-        String normalized = remoteDirectory == null ? "" : remoteDirectory.trim().replace('\\', '/');
-        if (normalized.isBlank()) {
-            throw new IOException(RemoteDeployBundle.message("service.validation.remoteDirectoryRequired"));
+    /**
+     * Keeps the existing single-file upload behavior unless the user explicitly requests a safe staging suffix.
+     */
+    private String resolveRemoteFileName(String localFileName, DeploymentRequest request) throws IOException {
+        if (!request.useRemoteFileSuffix()) {
+            return localFileName;
         }
-        if (normalized.length() > 1 && normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        return normalized;
+        return localFileName + normalizeRemoteFileSuffix(request.remoteFileSuffix());
     }
 
-    private String joinRemotePath(String parent, String child) {
-        return "/".equals(parent) ? "/" + child : parent + "/" + child;
+    /**
+     * Rejects path separators so the suffix can only affect the remote filename and not escape the selected directory.
+     */
+    private String normalizeRemoteFileSuffix(String remoteFileSuffix) throws IOException {
+        String normalized = remoteFileSuffix == null ? "" : remoteFileSuffix.trim();
+        if (normalized.isBlank()) {
+            throw new IOException(RemoteDeployBundle.message("service.validation.remoteFileSuffixRequired"));
+        }
+        if (normalized.indexOf('/') >= 0 || normalized.indexOf('\\') >= 0) {
+            throw new IOException(RemoteDeployBundle.message("service.validation.remoteFileSuffixInvalid"));
+        }
+        return normalized;
     }
 
     private record CommandResult(String stdout, String stderr, int exitCode) {

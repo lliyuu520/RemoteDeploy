@@ -25,11 +25,15 @@ import java.nio.file.Path;
 public final class RemoteDeployRunConfiguration extends RunConfigurationBase<RemoteDeployRunConfiguration> {
     private static final String FIELD_SERVER_ID = "serverId";
     private static final String FIELD_LOCAL_PATH = "localPath";
+    private static final String FIELD_USE_REMOTE_FILE_SUFFIX = "useRemoteFileSuffix";
+    private static final String FIELD_REMOTE_FILE_SUFFIX = "remoteFileSuffix";
     private static final String FIELD_REMOTE_DIRECTORY = "remoteDirectory";
     private static final String FIELD_COMMAND = "command";
 
     private String serverId = "";
     private String localPath = "";
+    private boolean useRemoteFileSuffix;
+    private String remoteFileSuffix = "";
     private String remoteDirectory = "";
     private String command = "";
 
@@ -66,6 +70,15 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
         if (!Files.exists(Path.of(localPathValue))) {
             throw new RuntimeConfigurationError(RemoteDeployBundle.message("run.configuration.validation.localPathMissing", localPathValue));
         }
+        if (useRemoteFileSuffix && Files.isRegularFile(Path.of(localPathValue))) {
+            String normalizedSuffix = remoteFileSuffix == null ? "" : remoteFileSuffix.trim();
+            if (normalizedSuffix.isEmpty()) {
+                throw new RuntimeConfigurationError(RemoteDeployBundle.message("run.configuration.validation.remoteFileSuffixRequired"));
+            }
+            if (normalizedSuffix.indexOf('/') >= 0 || normalizedSuffix.indexOf('\\') >= 0) {
+                throw new RuntimeConfigurationError(RemoteDeployBundle.message("run.configuration.validation.remoteFileSuffixInvalid"));
+            }
+        }
 
         String remoteValue = remoteDirectory == null ? "" : remoteDirectory.trim();
         if (remoteValue.isEmpty()) {
@@ -78,6 +91,8 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
         super.readExternal(element);
         serverId = JDOMExternalizerUtil.readField(element, FIELD_SERVER_ID, "");
         localPath = JDOMExternalizerUtil.readField(element, FIELD_LOCAL_PATH, "");
+        useRemoteFileSuffix = Boolean.parseBoolean(JDOMExternalizerUtil.readField(element, FIELD_USE_REMOTE_FILE_SUFFIX, "false"));
+        remoteFileSuffix = JDOMExternalizerUtil.readField(element, FIELD_REMOTE_FILE_SUFFIX, "");
         remoteDirectory = JDOMExternalizerUtil.readField(element, FIELD_REMOTE_DIRECTORY, "");
         command = JDOMExternalizerUtil.readField(element, FIELD_COMMAND, "");
     }
@@ -87,6 +102,8 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
         super.writeExternal(element);
         JDOMExternalizerUtil.writeField(element, FIELD_SERVER_ID, serverId == null ? "" : serverId);
         JDOMExternalizerUtil.writeField(element, FIELD_LOCAL_PATH, localPath == null ? "" : localPath);
+        JDOMExternalizerUtil.writeField(element, FIELD_USE_REMOTE_FILE_SUFFIX, String.valueOf(useRemoteFileSuffix));
+        JDOMExternalizerUtil.writeField(element, FIELD_REMOTE_FILE_SUFFIX, remoteFileSuffix == null ? "" : remoteFileSuffix);
         JDOMExternalizerUtil.writeField(element, FIELD_REMOTE_DIRECTORY, remoteDirectory == null ? "" : remoteDirectory);
         JDOMExternalizerUtil.writeField(element, FIELD_COMMAND, command == null ? "" : command);
     }
@@ -105,6 +122,22 @@ public final class RemoteDeployRunConfiguration extends RunConfigurationBase<Rem
 
     public void setLocalPath(String localPath) {
         this.localPath = localPath == null ? "" : localPath;
+    }
+
+    public boolean isUseRemoteFileSuffix() {
+        return useRemoteFileSuffix;
+    }
+
+    public void setUseRemoteFileSuffix(boolean useRemoteFileSuffix) {
+        this.useRemoteFileSuffix = useRemoteFileSuffix;
+    }
+
+    public String getRemoteFileSuffix() {
+        return remoteFileSuffix;
+    }
+
+    public void setRemoteFileSuffix(String remoteFileSuffix) {
+        this.remoteFileSuffix = remoteFileSuffix == null ? "" : remoteFileSuffix;
     }
 
     public String getRemoteDirectory() {

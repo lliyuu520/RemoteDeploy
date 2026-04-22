@@ -1,8 +1,17 @@
 <#
 Builds the IntelliJ plugin distribution zip and prints the generated artifact path.
+
+Default packaging is release-only:
+- run Gradle in-process to avoid the local daemon socket failure
+- skip searchable options because it starts sandbox IDE processes
 #>
 param(
-    [string]$GradleTask = "buildPlugin"
+    [string]$GradleTask = "buildPlugin",
+
+    [switch]$IncludeSearchableOptions,
+
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$ExtraGradleArgs
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,8 +53,25 @@ function Get-LatestPluginZip {
 $projectRoot = Get-ProjectRoot -ScriptPath $MyInvocation.MyCommand.Path
 
 Push-Location $projectRoot
+$previousJavaOpts = $env:JAVA_OPTS
 try {
-    & ".\gradlew.bat" $GradleTask
+    $gradleArgs = @($GradleTask, "--no-daemon")
+    if (-not $IncludeSearchableOptions) {
+        $gradleArgs += @("-x", "buildSearchableOptions")
+    }
+    if ($ExtraGradleArgs) {
+        $gradleArgs += $ExtraGradleArgs
+    }
+
+    # Ensure the wrapper JVM has enough heap when Gradle is forced to run in-process.
+    if ([string]::IsNullOrWhiteSpace($previousJavaOpts)) {
+        $env:JAVA_OPTS = "-Xmx2048m -Dfile.encoding=UTF-8"
+    }
+    else {
+        $env:JAVA_OPTS = "$previousJavaOpts -Xmx2048m -Dfile.encoding=UTF-8"
+    }
+
+    & ".\gradlew.bat" @gradleArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Gradle task '$GradleTask' failed with exit code $LASTEXITCODE."
     }
@@ -54,5 +80,11 @@ try {
     Write-Host "Plugin zip created: $($zipFile.FullName)"
 }
 finally {
+    if ($null -eq $previousJavaOpts) {
+        Remove-Item Env:JAVA_OPTS -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:JAVA_OPTS = $previousJavaOpts
+    }
     Pop-Location
 }

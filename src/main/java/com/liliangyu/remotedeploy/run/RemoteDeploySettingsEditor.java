@@ -1,6 +1,5 @@
 package com.liliangyu.remotedeploy.run;
 
-import com.intellij.icons.AllIcons;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
@@ -9,58 +8,55 @@ import com.intellij.openapi.ui.TextBrowseFolderListener;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
-import com.intellij.util.ui.JBUI;
 import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
-import com.liliangyu.remotedeploy.i18n.UiLanguage;
-import com.liliangyu.remotedeploy.model.AuthType;
 import com.liliangyu.remotedeploy.model.ServerConfig;
-import com.liliangyu.remotedeploy.service.SecretStorage;
 import com.liliangyu.remotedeploy.settings.RemoteDeploySettingsService;
-import com.liliangyu.remotedeploy.ui.ServerConfigDialog;
+import com.liliangyu.remotedeploy.ui.RemoteDirectoryChooserDialog;
+import com.liliangyu.remotedeploy.ui.ServerManagementDialog;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JComboBox;
-import javax.swing.Icon;
+import javax.swing.JCheckBox;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.event.ActionListener;
 import java.util.List;
 
 /**
- * Editor UI for configuring stored servers and deploy settings inside Run/Debug Configurations.
+ * Editor UI for choosing a stored server plus the deploy settings attached to one Run/Debug Configuration.
  */
 public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeployRunConfiguration> {
     private final Project project;
     private final RemoteDeploySettingsService settingsService = RemoteDeploySettingsService.getInstance();
 
-    private final JComboBox<UiLanguage> languageComboBox = new JComboBox<>(UiLanguage.values());
     private final JComboBox<ServerConfig> serverComboBox = new JComboBox<>();
     private final TextFieldWithBrowseButton localPathField = new TextFieldWithBrowseButton();
-    private final JBTextField remoteDirectoryField = new JBTextField();
+    private final JCheckBox remoteFileSuffixCheckBox = new JCheckBox();
+    private final JBTextField remoteFileSuffixField = new JBTextField();
+    private final TextFieldWithBrowseButton remoteDirectoryField = new TextFieldWithBrowseButton();
     private final JComboBox<String> deployCommandComboBox = createEditableCommandComboBox();
-    private final JButton addButton = new JButton();
-    private final JButton editButton = new JButton();
-    private final JButton removeButton = new JButton();
+    private final JButton manageServersButton = new JButton();
     private final FileChooserDescriptor localPathDescriptor = new FileChooserDescriptor(true, true, false, false, false, false);
     private final JPanel editorPanel = new JPanel(new BorderLayout());
     private final JPanel serverRow = createServerRow();
+    private final JPanel remoteFileSuffixRow = createRemoteFileSuffixRow();
     private final JPanel deployCommandRow = createStretchRow(deployCommandComboBox);
 
     public RemoteDeploySettingsEditor(Project project) {
         this.project = project;
-        languageComboBox.setSelectedItem(settingsService.getUiLanguage());
-        languageComboBox.addActionListener(event -> applySelectedLanguage());
+        remoteFileSuffixCheckBox.addActionListener(event -> updateRemoteFileSuffixState());
+        remoteFileSuffixField.getEmptyText().setText(".tmp");
     }
 
     @Override
     protected void resetEditorFrom(@NotNull RemoteDeployRunConfiguration configuration) {
         reloadServers(configuration.getServerId());
         localPathField.setText(configuration.getLocalPath());
+        remoteFileSuffixCheckBox.setSelected(configuration.isUseRemoteFileSuffix());
+        remoteFileSuffixField.setText(configuration.getRemoteFileSuffix());
+        updateRemoteFileSuffixState();
         remoteDirectoryField.setText(configuration.getRemoteDirectory());
         reloadCommandTemplates(configuration.getCommand());
     }
@@ -70,6 +66,8 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         ServerConfig selected = getSelectedServer();
         configuration.setServerId(selected == null ? "" : selected.getId());
         configuration.setLocalPath(localPathField.getText().trim());
+        configuration.setUseRemoteFileSuffix(remoteFileSuffixCheckBox.isSelected());
+        configuration.setRemoteFileSuffix(remoteFileSuffixField.getText().trim());
         configuration.setRemoteDirectory(remoteDirectoryField.getText().trim());
         String deployCommand = getCommandValue(deployCommandComboBox);
         configuration.setCommand(deployCommand);
@@ -79,41 +77,26 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
     @Override
     protected @NotNull JComponent createEditor() {
         localPathField.addBrowseFolderListener(new TextBrowseFolderListener(localPathDescriptor, project));
+        remoteDirectoryField.addActionListener(event -> browseRemoteDirectory());
 
         serverComboBox.setPrototypeDisplayValue(createServerPrototype());
-        serverComboBox.addActionListener(event -> reloadCommandTemplates(getCommandValue(deployCommandComboBox)));
+        serverComboBox.addActionListener(event -> {
+            reloadCommandTemplates(getCommandValue(deployCommandComboBox));
+            updateRemoteDirectoryBrowseState();
+        });
 
         refreshTexts();
+        updateRemoteDirectoryBrowseState();
         return editorPanel;
     }
 
     private JPanel createServerRow() {
-        configureIconButton(addButton, AllIcons.General.Add);
-        configureIconButton(editButton, AllIcons.Actions.Edit);
-        configureIconButton(removeButton, AllIcons.General.Remove);
-        addButton.addActionListener(event -> addServer());
-        editButton.addActionListener(event -> editServer());
-        removeButton.addActionListener(event -> removeServer());
-
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        buttonPanel.add(addButton);
-        buttonPanel.add(editButton);
-        buttonPanel.add(removeButton);
+        manageServersButton.addActionListener(event -> openServerManager());
 
         JPanel row = new JPanel(new BorderLayout(8, 0));
         row.add(serverComboBox, BorderLayout.CENTER);
-        row.add(buttonPanel, BorderLayout.EAST);
+        row.add(manageServersButton, BorderLayout.EAST);
         return row;
-    }
-
-    /**
-     * Keeps server actions lightweight so the selected host can use most of the row width.
-     */
-    private void configureIconButton(JButton button, Icon icon) {
-        button.setIcon(icon);
-        button.setPreferredSize(JBUI.size(32, 32));
-        button.setMinimumSize(new Dimension(32, 32));
-        button.setFocusable(false);
     }
 
     /**
@@ -125,6 +108,15 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         return row;
     }
 
+    private JPanel createRemoteFileSuffixRow() {
+        remoteFileSuffixField.setColumns(12);
+
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.add(remoteFileSuffixCheckBox, BorderLayout.CENTER);
+        row.add(remoteFileSuffixField, BorderLayout.EAST);
+        return row;
+    }
+
     private void reloadServers(String preferredServerId) {
         List<ServerConfig> servers = settingsService.getServers();
         DefaultComboBoxModel<ServerConfig> model = new DefaultComboBoxModel<>();
@@ -133,6 +125,7 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         }
         serverComboBox.setModel(model);
         selectServer(preferredServerId, servers);
+        updateRemoteDirectoryBrowseState();
     }
 
     /**
@@ -160,71 +153,45 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         serverComboBox.setSelectedItem(servers.getFirst());
     }
 
-    private void addServer() {
-        ServerConfigDialog dialog = new ServerConfigDialog(project, null);
-        if (!dialog.showAndGet() || dialog.getResult() == null) {
-            return;
-        }
+    /**
+     * Opens the shared server manager so this editor only owns server selection, not server CRUD.
+     */
+    private void openServerManager() {
         String deployCommand = getCommandValue(deployCommandComboBox);
-        persistServer(dialog.getResult());
-        reloadServers(dialog.getResult().server().getId());
+        ServerManagementDialog dialog = new ServerManagementDialog(project, getSelectedServerId());
+        dialog.show();
+        reloadServers(dialog.getSelectedServerId());
         reloadCommandTemplates(deployCommand);
     }
 
-    private void editServer() {
-        ServerConfig selected = getSelectedServer();
-        if (selected == null) {
+    /**
+     * Opens the shared remote-directory browser so run configurations can reuse the same path selection flow as ad-hoc deploys.
+     */
+    private void browseRemoteDirectory() {
+        ServerConfig server = getSelectedServer();
+        if (server == null) {
+            Messages.showErrorDialog(
+                project,
+                RemoteDeployBundle.message("run.configuration.validation.serverRequired"),
+                RemoteDeployBundle.message("run.config.type.displayName")
+            );
             return;
         }
 
-        ServerConfigDialog dialog = new ServerConfigDialog(project, selected);
-        if (!dialog.showAndGet() || dialog.getResult() == null) {
-            return;
+        RemoteDirectoryChooserDialog dialog = new RemoteDirectoryChooserDialog(project, server, remoteDirectoryField.getText());
+        if (dialog.showAndGet()) {
+            remoteDirectoryField.setText(dialog.getSelectedDirectory());
         }
-        String deployCommand = getCommandValue(deployCommandComboBox);
-        persistServer(dialog.getResult());
-        reloadServers(dialog.getResult().server().getId());
-        reloadCommandTemplates(deployCommand);
-    }
-
-    private void removeServer() {
-        ServerConfig selected = getSelectedServer();
-        if (selected == null) {
-            return;
-        }
-
-        int answer = Messages.showYesNoDialog(
-            project,
-            RemoteDeployBundle.message("run.editor.removeServer.message", selected.getName()),
-            RemoteDeployBundle.message("run.editor.removeServer.title"),
-            Messages.getQuestionIcon()
-        );
-        if (answer != Messages.YES) {
-            return;
-        }
-
-        settingsService.removeServer(selected.getId());
-        SecretStorage.deleteServerSecrets(selected.getId());
-        String deployCommand = getCommandValue(deployCommandComboBox);
-        reloadServers(settingsService.getLastServerId());
-        reloadCommandTemplates(deployCommand);
-    }
-
-    private void persistServer(ServerConfigDialog.Result result) {
-        ServerConfig server = result.server();
-        settingsService.saveServer(server);
-        if (server.getAuthType() == AuthType.PASSWORD) {
-            SecretStorage.savePassword(server.getId(), result.password());
-            SecretStorage.savePassphrase(server.getId(), null);
-            return;
-        }
-        SecretStorage.savePassword(server.getId(), null);
-        SecretStorage.savePassphrase(server.getId(), result.passphrase());
     }
 
     private ServerConfig getSelectedServer() {
         Object selectedItem = serverComboBox.getSelectedItem();
         return selectedItem instanceof ServerConfig server ? server : null;
+    }
+
+    private String getSelectedServerId() {
+        ServerConfig selected = getSelectedServer();
+        return selected == null ? "" : selected.getId();
     }
 
     private JComboBox<String> createEditableCommandComboBox() {
@@ -260,27 +227,33 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         return value == null ? "" : value.trim();
     }
 
+    private void updateRemoteDirectoryBrowseState() {
+        remoteDirectoryField.setButtonEnabled(getSelectedServer() != null);
+    }
+
+    /**
+     * Keeps the suffix field dormant until the configuration explicitly opts into staging single-file uploads under a temp name.
+     */
+    private void updateRemoteFileSuffixState() {
+        remoteFileSuffixField.setEnabled(remoteFileSuffixCheckBox.isSelected());
+    }
+
     private ServerConfig createServerPrototype() {
         ServerConfig prototype = new ServerConfig();
         prototype.setName("deploy-prod-long.example.com");
         return prototype;
     }
 
-    private void applySelectedLanguage() {
-        settingsService.setUiLanguage((UiLanguage) languageComboBox.getSelectedItem());
-        refreshTexts();
-    }
-
     /**
-     * Rebuilds the editor labels and tooltips in place so the Run Configuration UI follows the selected language.
+     * Rebuilds the editor labels and tooltips in place so the Run Configuration UI follows the current IDEA language.
      */
     private void refreshTexts() {
         localPathDescriptor.setTitle(RemoteDeployBundle.message("chooser.localPath.title"));
         localPathDescriptor.setDescription(RemoteDeployBundle.message("chooser.localPath.description"));
-        addButton.setToolTipText(RemoteDeployBundle.message("run.editor.addServer"));
-        editButton.setToolTipText(RemoteDeployBundle.message("run.editor.editServer"));
-        removeButton.setToolTipText(RemoteDeployBundle.message("run.editor.removeServer"));
+        manageServersButton.setText(RemoteDeployBundle.message("common.manage"));
+        remoteFileSuffixCheckBox.setText(RemoteDeployBundle.message("option.remoteFileSuffix"));
         deployCommandComboBox.setPrototypeDisplayValue(RemoteDeployBundle.message("run.editor.command.prototype"));
+        updateRemoteFileSuffixState();
         rebuildEditorPanel();
     }
 
@@ -288,9 +261,9 @@ public final class RemoteDeploySettingsEditor extends SettingsEditor<RemoteDeplo
         editorPanel.removeAll();
         editorPanel.add(
             FormBuilder.createFormBuilder()
-                .addLabeledComponent(RemoteDeployBundle.message("common.language"), languageComboBox)
                 .addLabeledComponent(RemoteDeployBundle.message("field.server"), serverRow)
                 .addLabeledComponent(RemoteDeployBundle.message("field.localPath"), localPathField)
+                .addLabeledComponent(RemoteDeployBundle.message("field.remoteFileSuffix"), remoteFileSuffixRow)
                 .addLabeledComponent(RemoteDeployBundle.message("field.remoteDirectory"), remoteDirectoryField)
                 .addLabeledComponent(RemoteDeployBundle.message("field.deployCommand"), deployCommandRow)
                 .getPanel(),

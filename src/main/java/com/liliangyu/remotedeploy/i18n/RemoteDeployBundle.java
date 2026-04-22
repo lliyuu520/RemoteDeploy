@@ -1,26 +1,28 @@
 package com.liliangyu.remotedeploy.i18n;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.liliangyu.remotedeploy.settings.RemoteDeploySettingsService;
+import com.intellij.DynamicBundle;
 
 import java.text.MessageFormat;
+import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Resolves plugin messages from the persisted UI language so dialogs, notifications, and run output stay aligned.
+ * Resolves plugin messages from the current IDEA UI locale while intentionally collapsing every non-Chinese language to English.
  */
 public final class RemoteDeployBundle {
     private static final String BUNDLE_NAME = "messages.RemoteDeployBundle";
-    private static final Map<UiLanguage, ResourceBundle> BUNDLES = new ConcurrentHashMap<>();
+    private static final Locale ENGLISH_LOCALE = Locale.ENGLISH;
+    private static final Locale CHINESE_LOCALE = Locale.SIMPLIFIED_CHINESE;
+    private static final Map<Locale, ResourceBundle> BUNDLES = new ConcurrentHashMap<>();
 
     private RemoteDeployBundle() {
     }
 
     public static String message(String key, Object... args) {
-        ResourceBundle bundle = BUNDLES.computeIfAbsent(currentLanguage(),
-            language -> ResourceBundle.getBundle(BUNDLE_NAME, language.locale()));
+        Locale locale = currentLocale();
+        ResourceBundle bundle = BUNDLES.computeIfAbsent(locale, candidate -> ResourceBundle.getBundle(BUNDLE_NAME, candidate));
         String pattern = bundle.getString(key);
         if (args.length == 0) {
             return pattern;
@@ -29,14 +31,10 @@ public final class RemoteDeployBundle {
     }
 
     /**
-     * Falls back to English when the application service is not available yet, such as during early action creation.
+     * Keeps the plugin bilingual by treating any Chinese IDEA locale as Simplified Chinese and every other locale as English.
      */
-    public static UiLanguage currentLanguage() {
-        var application = ApplicationManager.getApplication();
-        if (application == null) {
-            return UiLanguage.ENGLISH;
-        }
-        RemoteDeploySettingsService service = application.getService(RemoteDeploySettingsService.class);
-        return service == null ? UiLanguage.ENGLISH : service.getUiLanguage();
+    public static Locale currentLocale() {
+        Locale ideLocale = DynamicBundle.getLocale();
+        return "zh".equalsIgnoreCase(ideLocale.getLanguage()) ? CHINESE_LOCALE : ENGLISH_LOCALE;
     }
 }

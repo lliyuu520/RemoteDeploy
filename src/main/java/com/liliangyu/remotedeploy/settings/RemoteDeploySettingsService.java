@@ -5,8 +5,9 @@ import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
-import com.liliangyu.remotedeploy.i18n.UiLanguage;
+import com.liliangyu.remotedeploy.model.AuthType;
 import com.liliangyu.remotedeploy.model.ServerConfig;
+import com.liliangyu.remotedeploy.service.SecretStorage;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -64,6 +65,20 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
         state.servers.add(detached);
     }
 
+    /**
+     * Persists one server definition and keeps Password Safe aligned with the selected authentication mode.
+     */
+    public void saveServerWithSecrets(ServerConfig server, @Nullable String password, @Nullable String passphrase) {
+        saveServer(server);
+        if (server.getAuthType() == AuthType.PASSWORD) {
+            SecretStorage.savePassword(server.getId(), password);
+            SecretStorage.savePassphrase(server.getId(), null);
+            return;
+        }
+        SecretStorage.savePassword(server.getId(), null);
+        SecretStorage.savePassphrase(server.getId(), passphrase);
+    }
+
     /** Removes the persisted target but intentionally leaves secret cleanup to the caller. */
     public void removeServer(String serverId) {
         state.servers.removeIf(server -> server.getId().equals(serverId));
@@ -72,23 +87,20 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
         }
     }
 
+    /**
+     * Removes one stored server together with any password or passphrase bound to that server id.
+     */
+    public void deleteServer(String serverId) {
+        removeServer(serverId);
+        SecretStorage.deleteServerSecrets(serverId);
+    }
+
     public String getLastServerId() {
         return state.lastServerId == null ? "" : state.lastServerId;
     }
 
     public void setLastServerId(String serverId) {
         state.lastServerId = serverId == null ? "" : serverId;
-    }
-
-    /**
-     * Stores the preferred plugin UI language separately from the IDE locale so users can switch at runtime.
-     */
-    public UiLanguage getUiLanguage() {
-        return UiLanguage.fromId(state.uiLanguage);
-    }
-
-    public void setUiLanguage(UiLanguage language) {
-        state.uiLanguage = (language == null ? UiLanguage.ENGLISH : language).id();
     }
 
     /**
@@ -109,7 +121,6 @@ public final class RemoteDeploySettingsService implements PersistentStateCompone
         RemoteDeploySettingsState copy = new RemoteDeploySettingsState();
         if (source != null) {
             copy.lastServerId = source.lastServerId == null ? "" : source.lastServerId;
-            copy.uiLanguage = UiLanguage.fromId(source.uiLanguage).id();
             for (ServerConfig server : source.servers) {
                 copy.servers.add(new ServerConfig(server));
             }

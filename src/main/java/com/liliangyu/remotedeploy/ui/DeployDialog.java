@@ -13,10 +13,8 @@ import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
 import com.intellij.util.ui.JBUI;
 import com.liliangyu.remotedeploy.i18n.RemoteDeployBundle;
-import com.liliangyu.remotedeploy.i18n.UiLanguage;
 import com.liliangyu.remotedeploy.model.DeploymentRequest;
 import com.liliangyu.remotedeploy.model.ServerConfig;
-import com.liliangyu.remotedeploy.service.SecretStorage;
 import com.liliangyu.remotedeploy.settings.RemoteDeploySettingsService;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,31 +22,31 @@ import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JComboBox;
+import javax.swing.JCheckBox;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
-import java.awt.FlowLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Collects the deploy-time choices while still letting the user manage stored targets without leaving the flow.
+ * Collects deploy-time choices while routing server CRUD through the shared manager dialog.
  */
 public final class DeployDialog extends DialogWrapper {
     private final @Nullable Project project;
     private final RemoteDeploySettingsService settingsService = RemoteDeploySettingsService.getInstance();
-    private final JComboBox<UiLanguage> languageComboBox = new JComboBox<>(UiLanguage.values());
     private final JComboBox<ServerConfig> serverComboBox = new JComboBox<>();
     private final TextFieldWithBrowseButton localPathField = new TextFieldWithBrowseButton();
-    private final JBTextField remoteDirectoryField = new JBTextField();
+    private final TextFieldWithBrowseButton remoteDirectoryField = new TextFieldWithBrowseButton();
+    private final JCheckBox remoteFileSuffixCheckBox = new JCheckBox();
+    private final JBTextField remoteFileSuffixField = new JBTextField();
     private final JBTextArea commandArea = new JBTextArea(6, 60);
-    private final JButton addButton = new JButton();
-    private final JButton editButton = new JButton();
-    private final JButton removeButton = new JButton();
+    private final JButton manageServersButton = new JButton();
     private final FileChooserDescriptor localPathDescriptor = new FileChooserDescriptor(true, true, false, false, false, false);
     private final JBScrollPane commandScrollPane = new JBScrollPane(commandArea);
     private final JPanel centerPanel = new JPanel(new BorderLayout());
     private final JPanel serverRow = createServerRow();
+    private final JPanel remoteFileSuffixRow = createRemoteFileSuffixRow();
 
     private DeploymentRequest request;
 
@@ -61,11 +59,12 @@ public final class DeployDialog extends DialogWrapper {
         setResizable(true);
 
         localPathField.addBrowseFolderListener(new TextBrowseFolderListener(localPathDescriptor, project));
+        remoteDirectoryField.addActionListener(event -> browseRemoteDirectory());
+        remoteFileSuffixCheckBox.addActionListener(event -> updateRemoteFileSuffixState());
+        remoteFileSuffixField.getEmptyText().setText(".tmp");
         commandArea.setLineWrap(true);
         commandArea.setWrapStyleWord(true);
         commandScrollPane.setPreferredSize(JBUI.size(0, 160));
-        languageComboBox.setSelectedItem(settingsService.getUiLanguage());
-        languageComboBox.addActionListener(event -> applySelectedLanguage());
         serverComboBox.addActionListener(event -> updateServerSelectionState());
 
         if (initialLocalPath != null && !initialLocalPath.isBlank()) {
@@ -92,7 +91,7 @@ public final class DeployDialog extends DialogWrapper {
 
     @Override
     public @Nullable JComponent getPreferredFocusedComponent() {
-        return serverComboBox.getItemCount() == 0 ? localPathField.getTextField() : serverComboBox;
+        return serverComboBox.getItemCount() == 0 ? manageServersButton : serverComboBox;
     }
 
     @Override
@@ -107,7 +106,9 @@ public final class DeployDialog extends DialogWrapper {
             server,
             localPathField.getText(),
             remoteDirectoryField.getText(),
-            commandArea.getText()
+            commandArea.getText(),
+            remoteFileSuffixCheckBox.isSelected(),
+            remoteFileSuffixField.getText()
         );
         super.doOKAction();
     }
@@ -115,7 +116,10 @@ public final class DeployDialog extends DialogWrapper {
     @Override
     protected @Nullable ValidationInfo doValidate() {
         if (getSelectedServer() == null) {
-            return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.serverRequired"), serverComboBox);
+            return new ValidationInfo(
+                RemoteDeployBundle.message("deploy.dialog.validation.serverRequired"),
+                serverComboBox.getItemCount() == 0 ? manageServersButton : serverComboBox
+            );
         }
 
         String localPath = localPathField.getText().trim();
@@ -125,6 +129,15 @@ public final class DeployDialog extends DialogWrapper {
         if (!Files.exists(Path.of(localPath))) {
             return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.localPathMissing"), localPathField);
         }
+        if (remoteFileSuffixCheckBox.isSelected() && Files.isRegularFile(Path.of(localPath))) {
+            String suffix = remoteFileSuffixField.getText().trim();
+            if (suffix.isEmpty()) {
+                return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.remoteFileSuffixRequired"), remoteFileSuffixField);
+            }
+            if (suffix.indexOf('/') >= 0 || suffix.indexOf('\\') >= 0) {
+                return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.remoteFileSuffixInvalid"), remoteFileSuffixField);
+            }
+        }
         if (remoteDirectoryField.getText().trim().isEmpty()) {
             return new ValidationInfo(RemoteDeployBundle.message("deploy.dialog.validation.remoteDirectoryRequired"), remoteDirectoryField);
         }
@@ -132,89 +145,62 @@ public final class DeployDialog extends DialogWrapper {
     }
 
     private JPanel createServerRow() {
-        addButton.addActionListener(event -> addServer());
-        editButton.addActionListener(event -> editSelectedServer());
-        removeButton.addActionListener(event -> removeSelectedServer());
-
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        buttonPanel.add(addButton);
-        buttonPanel.add(editButton);
-        buttonPanel.add(removeButton);
+        manageServersButton.addActionListener(event -> openServerManager());
 
         JPanel row = new JPanel(new BorderLayout(8, 0));
         row.add(serverComboBox, BorderLayout.CENTER);
-        row.add(buttonPanel, BorderLayout.EAST);
+        row.add(manageServersButton, BorderLayout.EAST);
         return row;
     }
 
-    private void addServer() {
-        ServerConfigDialog dialog = new ServerConfigDialog(project, null);
-        if (!dialog.showAndGet() || dialog.getResult() == null) {
-            return;
-        }
-        persistServer(dialog.getResult());
-        reloadServers(dialog.getResult().server().getId());
-    }
+    private JPanel createRemoteFileSuffixRow() {
+        remoteFileSuffixField.setColumns(12);
 
-    private void editSelectedServer() {
-        ServerConfig selectedServer = getSelectedServer();
-        if (selectedServer == null) {
-            return;
-        }
-
-        ServerConfigDialog dialog = new ServerConfigDialog(project, selectedServer);
-        if (!dialog.showAndGet() || dialog.getResult() == null) {
-            return;
-        }
-        persistServer(dialog.getResult());
-        reloadServers(dialog.getResult().server().getId());
-    }
-
-    private void removeSelectedServer() {
-        ServerConfig selectedServer = getSelectedServer();
-        if (selectedServer == null) {
-            return;
-        }
-
-        int answer = Messages.showYesNoDialog(
-            project,
-            RemoteDeployBundle.message("deploy.dialog.removeServer.message", selectedServer.getName()),
-            RemoteDeployBundle.message("deploy.dialog.removeServer.title"),
-            Messages.getQuestionIcon()
-        );
-        if (answer != Messages.YES) {
-            return;
-        }
-
-        settingsService.removeServer(selectedServer.getId());
-        SecretStorage.deleteServerSecrets(selectedServer.getId());
-        reloadServers(settingsService.getLastServerId());
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.add(remoteFileSuffixCheckBox, BorderLayout.CENTER);
+        row.add(remoteFileSuffixField, BorderLayout.EAST);
+        return row;
     }
 
     /**
-     * Keeps the dialog actionable only when a server exists, without silently injecting hidden server-level defaults.
+     * Keeps deploy disabled until a stored server exists while preserving the rest of the request fields.
      */
     private void updateServerSelectionState() {
-        ServerConfig selectedServer = getSelectedServer();
-        if (selectedServer == null) {
-            remoteDirectoryField.setText("");
-            commandArea.setText("");
-            setOKActionEnabled(false);
-            return;
-        }
-        setOKActionEnabled(true);
+        boolean hasServer = getSelectedServer() != null;
+        setOKActionEnabled(hasServer);
+        remoteDirectoryField.setButtonEnabled(hasServer);
     }
 
-    private void persistServer(ServerConfigDialog.Result result) {
-        ServerConfig server = result.server();
-        settingsService.saveServer(server);
-        if (server.getAuthType() == com.liliangyu.remotedeploy.model.AuthType.PASSWORD) {
-            SecretStorage.savePassword(server.getId(), result.password());
-            SecretStorage.savePassphrase(server.getId(), null);
+    /**
+     * Keeps the suffix text box passive until the user explicitly opts into staging single-file uploads under another name.
+     */
+    private void updateRemoteFileSuffixState() {
+        remoteFileSuffixField.setEnabled(remoteFileSuffixCheckBox.isSelected());
+    }
+
+    /**
+     * Opens the shared server manager and refreshes the dropdown after any add/edit/remove operation inside it.
+     */
+    private void openServerManager() {
+        ServerManagementDialog dialog = new ServerManagementDialog(project, getSelectedServerId());
+        dialog.show();
+        reloadServers(dialog.getSelectedServerId());
+    }
+
+    /**
+     * Browses the selected server lazily and writes the chosen remote directory back into the editable field.
+     */
+    private void browseRemoteDirectory() {
+        ServerConfig server = getSelectedServer();
+        if (server == null) {
+            Messages.showErrorDialog(project, RemoteDeployBundle.message("deploy.dialog.validation.serverRequired"), getTitle());
             return;
         }
-        SecretStorage.savePassword(server.getId(), null);
-        SecretStorage.savePassphrase(server.getId(), result.passphrase());
+
+        RemoteDirectoryChooserDialog dialog = new RemoteDirectoryChooserDialog(project, server, remoteDirectoryField.getText());
+        if (dialog.showAndGet()) {
+            remoteDirectoryField.setText(dialog.getSelectedDirectory());
+        }
     }
 
     private void reloadServers(@Nullable String preferredServerId) {
@@ -249,23 +235,22 @@ public final class DeployDialog extends DialogWrapper {
         return selectedItem instanceof ServerConfig server ? server : null;
     }
 
-    private void applySelectedLanguage() {
-        UiLanguage selected = (UiLanguage) languageComboBox.getSelectedItem();
-        settingsService.setUiLanguage(selected);
-        refreshTexts();
+    private @Nullable String getSelectedServerId() {
+        ServerConfig selectedServer = getSelectedServer();
+        return selectedServer == null ? null : selectedServer.getId();
     }
 
     /**
-     * Rebuilds the form labels from the current language while keeping existing field values and selections intact.
+     * Rebuilds the form labels from the current IDEA language while keeping existing field values and selections intact.
      */
     private void refreshTexts() {
         setTitle(RemoteDeployBundle.message("deploy.dialog.title"));
         setOKButtonText(RemoteDeployBundle.message("deploy.dialog.ok"));
-        addButton.setText(RemoteDeployBundle.message("common.add"));
-        editButton.setText(RemoteDeployBundle.message("common.edit"));
-        removeButton.setText(RemoteDeployBundle.message("common.remove"));
+        manageServersButton.setText(RemoteDeployBundle.message("common.manage"));
+        remoteFileSuffixCheckBox.setText(RemoteDeployBundle.message("option.remoteFileSuffix"));
         localPathDescriptor.setTitle(RemoteDeployBundle.message("chooser.localPath.title"));
         localPathDescriptor.setDescription(RemoteDeployBundle.message("chooser.localPath.description"));
+        updateRemoteFileSuffixState();
         rebuildCenterPanel();
     }
 
@@ -273,9 +258,9 @@ public final class DeployDialog extends DialogWrapper {
         centerPanel.removeAll();
         centerPanel.add(
             FormBuilder.createFormBuilder()
-                .addLabeledComponent(RemoteDeployBundle.message("common.language"), languageComboBox)
                 .addLabeledComponent(RemoteDeployBundle.message("field.server"), serverRow)
                 .addLabeledComponent(RemoteDeployBundle.message("field.localPath"), localPathField)
+                .addLabeledComponent(RemoteDeployBundle.message("field.remoteFileSuffix"), remoteFileSuffixRow)
                 .addLabeledComponent(RemoteDeployBundle.message("field.remoteDirectory"), remoteDirectoryField)
                 .addLabeledComponentFillVertically(RemoteDeployBundle.message("field.remoteCommand"), commandScrollPane)
                 .getPanel(),

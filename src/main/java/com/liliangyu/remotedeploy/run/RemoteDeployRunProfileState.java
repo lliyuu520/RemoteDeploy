@@ -74,12 +74,21 @@ public final class RemoteDeployRunProfileState implements RunProfileState {
 
             ServerConfig server = serverConfig.get();
             String localPath = expandMacros(configuration.getLocalPath());
+            boolean useRemoteFileSuffix = configuration.isUseRemoteFileSuffix();
+            String remoteFileSuffix = normalizeValue(configuration.getRemoteFileSuffix());
             String remoteDirectory = normalizeValue(configuration.getRemoteDirectory());
             String command = normalizeValue(configuration.getCommand());
 
             printSystem(handler, RemoteDeployBundle.message("run.profile.connecting", server.getName(), server.getHost()));
 
-            DeploymentRequest request = new DeploymentRequest(server, localPath, remoteDirectory, command);
+            DeploymentRequest request = new DeploymentRequest(
+                server,
+                localPath,
+                remoteDirectory,
+                command,
+                useRemoteFileSuffix,
+                remoteFileSuffix
+            );
             DeploymentResult result = new SshDeployService().deploy(request, indicator);
 
             printSystem(handler, RemoteDeployBundle.message("run.profile.uploadFinished", result.uploadedPaths().size()));
